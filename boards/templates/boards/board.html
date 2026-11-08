@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ board.title }} — Board — messenger{% endblock %}
+
+{% block body_modifiers %} board-screen{% endblock %}
+
+{% block content %}
+<div class="board-page" data-board-root data-read-only="{{ read_only|yesno:'true,false' }}">
+  <header class="board-page__bar">
+    <a class="game-back" href="{{ back_url }}">← Back to chat</a>
+    <h1 class="game-title">{{ board.title }}</h1>
+    {% if board.is_locked %}
+    <span class="board-page__lock">Locked</span>
+    {% endif %}
+    {% if read_only %}
+    <span class="board-page__lock">Read only</span>
+    {% endif %}
+  </header>
+
+  <div class="board-toolbar" data-board-toolbar role="toolbar" aria-label="Board tools">
+    <div class="board-toolbar__group" data-edit-only>
+      <button type="button" class="board-toolbar__btn" data-tool="select" aria-label="Select (V)" aria-pressed="true">Select</button>
+      <button type="button" class="board-toolbar__btn" data-tool="rect" aria-label="Rectangle (R)" aria-pressed="false">Rect</button>
+      <button type="button" class="board-toolbar__btn" data-tool="ellipse" aria-label="Ellipse (O)" aria-pressed="false">Ellipse</button>
+      <button type="button" class="board-toolbar__btn" data-tool="line" aria-label="Line (L)" aria-pressed="false">Line</button>
+      <button type="button" class="board-toolbar__btn" data-tool="arrow" aria-label="Arrow (A)" aria-pressed="false">Arrow</button>
+      <button type="button" class="board-toolbar__btn" data-tool="textbox" aria-label="Text (T)" aria-pressed="false">Text</button>
+      <button type="button" class="board-toolbar__btn" data-tool="sticker" aria-label="Sticker (S)" aria-pressed="false">Sticker</button>
+      <button type="button" class="board-toolbar__btn" data-tool="path" aria-label="Free draw (P)" aria-pressed="false">Draw</button>
+      <button type="button" class="board-toolbar__btn" data-tool="eraser" aria-label="Eraser (E)" aria-pressed="false">Eraser</button>
+    </div>
+    <div class="board-toolbar__group" data-edit-only>
+      <button type="button" class="board-toolbar__btn" data-action="undo" aria-label="Undo (Ctrl+Z)">Undo</button>
+      <button type="button" class="board-toolbar__btn" data-action="redo" aria-label="Redo (Ctrl+Shift+Z)">Redo</button>
+      <button type="button" class="board-toolbar__btn" data-action="duplicate" aria-label="Duplicate (Ctrl+D)">Duplicate</button>
+      <button type="button" class="board-toolbar__btn" data-action="delete" aria-label="Delete selection (Delete)">Delete</button>
+      <button type="button" class="board-toolbar__btn" data-action="front" aria-label="Bring to front (])">Front</button>
+      <button type="button" class="board-toolbar__btn" data-action="back" aria-label="Send to back ([)">Back</button>
+    </div>
+    <div class="board-toolbar__group" data-edit-only>
+      <label class="board-toolbar__field">
+        <span>Fill</span>
+        <input type="color" data-board-fill value="#c9a227" aria-label="Fill color">
+      </label>
+      <label class="board-toolbar__field">
+        <span>Stroke</span>
+        <input type="color" data-board-stroke value="#e8eaed" aria-label="Stroke color">
+      </label>
+      <label class="board-toolbar__field">
+        <span>Width</span>
+        <input type="number" data-board-stroke-width min="0" max="80" value="2" aria-label="Stroke width">
+      </label>
+      <label class="board-toolbar__field">
+        <span>Font</span>
+        <input type="number" data-board-font-size min="8" max="400" value="24" aria-label="Font size">
+      </label>
+    </div>
+    <div class="board-toolbar__group">
+      <button type="button" class="board-toolbar__btn" data-action="zoom-out" aria-label="Zoom out">−</button>
+      <button type="button" class="board-toolbar__btn" data-action="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="board-toolbar__btn" data-action="fit" aria-label="Fit all (Ctrl+0)">Fit all</button>
+      <button type="button" class="board-toolbar__btn" data-action="export-view" aria-label="Export visible area as PNG">PNG view</button>
+      <button type="button" class="board-toolbar__btn" data-action="export-all" aria-label="Export entire board as PNG">PNG all</button>
+      <button type="button" class="board-toolbar__btn" data-action="help" aria-label="Keyboard shortcuts (?)">Help</button>
+    </div>
+  </div>
+
+  <div class="board-page__stage">
+    <canvas id="board-canvas" aria-label="Board canvas"></canvas>
+  </div>
+
+  <dialog class="board-help" data-board-help aria-labelledby="board-help-title">
+    <form method="dialog">
+      <h2 id="board-help-title">Keyboard shortcuts</h2>
+      <ul class="board-help__list">
+        <li><kbd>V</kbd> Select</li>
+        <li><kbd>R</kbd> Rectangle</li>
+        <li><kbd>O</kbd> Ellipse</li>
+        <li><kbd>L</kbd> Line</li>
+        <li><kbd>A</kbd> Arrow</li>
+        <li><kbd>T</kbd> Text</li>
+        <li><kbd>S</kbd> Sticker</li>
+        <li><kbd>P</kbd> Free draw</li>
+        <li><kbd>E</kbd> Eraser</li>
+        <li><kbd>Delete</kbd> Delete selection</li>
+        <li><kbd>Ctrl+D</kbd> Duplicate</li>
+        <li><kbd>Ctrl+Z</kbd> Undo</li>
+        <li><kbd>Ctrl+Shift+Z</kbd> Redo</li>
+        <li><kbd>[</kbd> Send to back</li>
+        <li><kbd>]</kbd> Bring to front</li>
+        <li><kbd>Space</kbd> + drag: pan</li>
+        <li>Middle mouse: pan</li>
+        <li>Wheel or pinch: zoom</li>
+        <li><kbd>Ctrl+0</kbd> Fit all</li>
+        <li><kbd>?</kbd> This help</li>
+      </ul>
+      <button type="submit" class="game-btn game-btn--secondary">Close</button>
+    </form>
+  </dialog>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script type="module" src="{% static 'boards/js/main.js' %}?v={{ asset_board_js_v }}"></script>
+{% endblock %}

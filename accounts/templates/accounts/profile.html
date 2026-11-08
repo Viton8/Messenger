@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Profile — messenger{% endblock %}
+
+{% block content %}
+<div class="game-page profile-page">
+  <section class="game-panel">
+    <div class="profile-identity">
+      <span class="profile-avatar" aria-hidden="true">
+        <span class="profile-avatar__initials">{{ initials }}</span>
+        {% if user.has_avatar %}
+        <img src="{{ user.avatar_url }}" alt="" onerror="this.remove()">
+        {% endif %}
+      </span>
+      <div class="profile-identity__text">
+        <p class="profile-kicker">Profile</p>
+        <h1 class="game-title profile-name">{{ user.username }}</h1>
+      </div>
+    </div>
+
+    <div class="profile-actions">
+      <a class="game-btn game-btn--primary profile-resume" href="{% url 'chat:inbox' %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M5 6.5h14a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1H9.5L5 19.5V7.5a1 1 0 0 1 1-1z"></path>
+        </svg>
+        <span>Open chats</span>
+      </a>
+      {% if chat_unread_count %}
+      <span class="chat-unread">
+        <span aria-hidden="true">{{ chat_unread_label }}</span>
+        <span class="visually-hidden">{{ chat_unread_count }} unread</span>
+      </span>
+      {% endif %}
+    </div>
+
+    <section class="profile-account" aria-labelledby="profile-account-title">
+      <h2 id="profile-account-title" class="profile-section-title">Account</h2>
+      <p class="profile-account__email">
+        <span class="profile-account__label">Email</span>
+        {% if user.email %}
+        <span>{{ user.email }}</span>
+        {% else %}
+        <span>Not set</span>
+        {% endif %}
+      </p>
+      {% if not user.email %}
+      <p class="profile-note">Add an email so you can choose a new password from a link if you forget the current one.</p>
+      {% endif %}
+
+      <div class="profile-account__tools">
+      <details class="profile-editor" {% if open_email %}open{% endif %}>
+        <summary class="profile-toggle">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M4.5 7.5h15v9.5h-15z"></path>
+            <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M4.8 8l7.2 5.2L19.2 8"></path>
+          </svg>
+          <span>{% if user.email %}Change email{% else %}Add email{% endif %}</span>
+        </summary>
+        <form method="post" class="game-form game-form--stacked auth-form" data-busy-submit novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="email">
+          {% include "accounts/includes/auth_fields.html" with form=email_form %}
+          <div class="profile-editor__actions">
+            <button type="submit" class="game-btn game-btn--primary auth-submit" data-loading-label="Saving email…">
+              <span class="auth-submit__spinner" aria-hidden="true"></span>
+              <span class="auth-submit__label">Save email</span>
+            </button>
+            <a class="game-btn game-btn--secondary" href="{% url 'profile' %}">Cancel</a>
+          </div>
+        </form>
+      </details>
+
+      <details class="profile-editor" {% if open_password %}open{% endif %}>
+        <summary class="profile-toggle">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="6" y="11" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.75"></rect>
+            <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M8.5 11V8.8a3.5 3.5 0 0 1 7 0V11"></path>
+          </svg>
+          <span>Change password</span>
+        </summary>
+        {% if password_error %}
+        <div class="form-errors auth-form__banner" role="alert">
+          <p><span class="field-error__icon" aria-hidden="true">⚠</span> {{ password_error }}</p>
+        </div>
+        {% endif %}
+        {% if user.email %}
+        <form method="post" class="game-form game-form--stacked auth-form" data-busy-submit novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="password">
+          <p class="profile-note">We will email a link to {{ user.email }}. Open it to choose a new password. The current password is not required.</p>
+          <div class="profile-editor__actions">
+            <button type="submit" class="game-btn game-btn--primary auth-submit" data-loading-label="Sending link…">
+              <span class="auth-submit__spinner" aria-hidden="true"></span>
+              <span class="auth-submit__label">Send reset link</span>
+            </button>
+            <a class="game-btn game-btn--secondary" href="{% url 'profile' %}">Cancel</a>
+          </div>
+        </form>
+        {% else %}
+        <p class="profile-note">Add an email first. We email a link to choose a new password, so you can change it even if you have forgotten the current one.</p>
+        {% endif %}
+      </details>
+      </div>
+    </section>
+
+    <form method="post" action="{% url 'logout' %}" class="profile-logout">
+      {% csrf_token %}
+      <button type="submit" class="game-btn game-btn--secondary">Sign out</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'ui/js/auth_form.js' %}?v={{ asset_auth_js_v }}"></script>
+{% endblock %}

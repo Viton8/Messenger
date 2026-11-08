@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} — messenger{% endblock %}
+
+{% block content %}
+<div class="game-page chat-room-page">
+  <a class="game-back" href="{% url 'chat:inbox' %}">← Back to chats</a>
+
+  <section class="game-panel" id="chat-room"
+           data-chat-id="{{ chat.pk }}"
+           data-self-id="{{ request.user.pk }}"
+           data-has-older="{% if has_older %}1{% else %}0{% endif %}"
+           aria-labelledby="chat-room-title">
+    <h1 id="chat-room-title" class="game-title">{{ title }}</h1>
+    <p id="chat-connection" class="chat-connection" role="status">Connecting…</p>
+
+    <p id="chat-empty-hint" class="game-status"{% if messages_list %} hidden{% endif %}>No messages yet. Say hello!</p>
+    <div id="chat-log" class="game-chat-log game-chat-log--room game-chat-log--thread" role="log" aria-relevant="additions" aria-label="Conversation" tabindex="0">
+      {% for m in messages_list %}
+      <div class="game-chat-line{% if m.kind == 'system' %} game-chat-line--system{% elif m.is_mine %} is-mine{% endif %}"
+           data-message-id="{{ m.id }}"
+           data-sender-id="{{ m.sender_id }}"
+           data-sent-at="{{ m.sent_at_iso }}"
+           data-kind="{{ m.kind }}">
+        <p class="game-chat-line__meta">
+          <span class="game-chat-line__name">{{ m.author }}</span>
+          <time datetime="{{ m.sent_at_iso }}">{{ m.time_label }}</time>
+        </p>
+        <p class="game-chat-line__body">{{ m.content }}</p>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="button" id="chat-jump" class="game-btn game-btn--secondary chat-jump" hidden>New messages</button>
+
+    <form method="post" action="" id="chat-form" class="game-chat-form">
+      {% csrf_token %}
+      <label class="visually-hidden" for="chat-input">Message</label>
+      <input id="chat-input" name="content" type="text" maxlength="10000" placeholder="Message…" autocomplete="off" required value="{{ form.content.value|default_if_none:'' }}" {% if form.content.errors %}aria-invalid="true" aria-describedby="chat-error"{% endif %} />
+      <button type="submit" id="chat-send" class="game-btn game-btn--primary">Send</button>
+    </form>
+    <p id="chat-error" class="field-error" role="alert"{% if not form.content.errors %} hidden{% endif %}>{% if form.content.errors %}{{ form.content.errors.0 }}{% endif %}</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'chat/js/chat_thread.js' %}?v={{ asset_chat_thread_js_v }}"></script>
+<script src="{% static 'chat/js/room.js' %}?v={{ asset_chat_room_js_v }}"></script>
+{% endblock %}
