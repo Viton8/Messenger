@@ -13,6 +13,7 @@ from boards.consumers import BoardConsumer
 from boards.models import Board, BoardObject
 from boards.services import create_board, delete_board
 from chat.group_services import create_group, remove_member
+from chat.models import ChatParticipant
 
 
 def _oid():
@@ -356,6 +357,17 @@ class TestBoardSync:
             await member.send_json_to({"type": "cursor", "x": 1, "y": 2})
             cursor = await _until(owner, "cursor")
             assert cursor["user"]["id"] == str(second_user.pk)
+            oid = _oid()
+            await member.send_json_to(
+                {"type": "transient", "id": oid, "patch": {"x": 3, "y": 4}}
+            )
+            locked_transient = await _until(member, "error")
+            assert locked_transient["code"] == "locked"
+            await owner.send_json_to(
+                {"type": "transient", "id": oid, "patch": {"x": 5, "y": 6}}
+            )
+            transient = await _until(member, "transient")
+            assert transient["patch"]["x"] == 5
             await owner.send_json_to(
                 {"type": "ops", "client_op_id": "o1", "ops": [_rect(_oid())]}
             )
@@ -400,3 +412,125 @@ class TestBoardSync:
 
         async_to_sync(scenario)()
         assert Board.objects.filter(pk=board.pk).exists() is False
+
+    def test_nonfinite_json_is_rejected(self, test_user):
+        """NaN in the JSON text is bad_payload, not a drawn object."""
+        chat = create_group(test_user, "Desk")
+        board = create_board(chat, test_user, "Wall")
+        oid = _oid()
+
+        async def scenario():
+            communicator, _ = await _open_ok(test_user, board)
+            await communicator.send_to(
+                text_data=(
+                    '{"type":"ops","client_op_id":"n1","ops":[{"op":"add","id":"%s",'
+                    '"data":{"type":"rect","x":NaN,"y":1,"width":1,"height":1}}]}'
+                    % oid
+                )
+            )
+            error = await _until(communicator, "error")
+            assert error["code"] == "bad_payload"
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+        assert BoardObject.objects.filter(pk=oid).exists() is False
+
+    @override_settings(BOARDS_MAX_OPS_PER_MESSAGE=2)
+    def test_too_many_ops_in_one_message(self, test_user):
+        """A frame with more ops than the limit is refused and seq stays put."""
+        chat = create_group(test_user, "Desk")
+        board = create_board(chat, test_user, "Wall")
+
+        async def scenario():
+            communicator, _ = await _open_ok(test_user, board)
+            await communicator.send_json_to(
+                {
+                    "type": "ops",
+                    "client_op_id": "many",
+                    "ops": [_rect(_oid()), _rect(_oid()), _rect(_oid())],
+                }
+            )
+            error = await _until(communicator, "error")
+            assert error["code"] == "too_many_ops"
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+        board.refresh_from_db()
+        assert board.seq == 0
+
+    def test_duplicate_id_on_another_board(self, test_user):
+        """The same object UUID cannot live on two boards."""
+        chat = create_group(test_user, "Desk")
+        first = create_board(chat, test_user, "One")
+        second = create_board(chat, test_user, "Two")
+        oid = _oid()
+
+        async def scenario():
+            a, _ = await _open_ok(test_user, first)
+            b, _ = await _open_ok(test_user, second)
+            await a.send_json_to(
+                {"type": "ops", "client_op_id": "a1", "ops": [_rect(oid)]}
+            )
+            await _until(a, "ops")
+            await b.send_json_to(
+                {"type": "ops", "client_op_id": "b1", "ops": [_rect(oid)]}
+            )
+            error = await _until(b, "error")
+            assert error["code"] == "duplicate_id"
+            await a.disconnect()
+            await b.disconnect()
+
+        async_to_sync(scenario)()
+        assert BoardObject.objects.filter(pk=oid, board=first).count() == 1
+        assert BoardObject.objects.filter(pk=oid, board=second).count() == 0
+
+    def test_removed_member_cannot_send_ops(self, test_user, second_user):
+        """Ops after a quiet kick close the socket and do not write objects."""
+        chat = create_group(test_user, "Desk")
+        chat.add_participant(second_user, role="member")
+        board = create_board(chat, test_user, "Wall")
+        oid = _oid()
+
+        async def drop_row():
+            await database_sync_to_async(
+                lambda: ChatParticipant.objects.filter(
+                    chat=chat, user=second_user
+                ).delete()
+            )()
+
+        async def scenario():
+            owner, _ = await _open_ok(test_user, board)
+            member, _ = await _open_ok(second_user, board)
+            await _until(owner, "presence")
+            await drop_row()
+            await member.send_json_to(
+                {"type": "ops", "client_op_id": "k1", "ops": [_rect(oid)]}
+            )
+            closed = await _wait_close(member)
+            assert closed.get("code") == 4403
+            await owner.disconnect()
+
+        async_to_sync(scenario)()
+        board.refresh_from_db()
+        assert board.seq == 0
+        assert BoardObject.objects.filter(pk=oid).exists() is False
+
+    def test_two_tabs_share_one_presence_row(self, test_user):
+        """A second tab does not duplicate the user; leave waits for the last tab."""
+        chat = create_group(test_user, "Desk")
+        board = create_board(chat, test_user, "Wall")
+
+        async def scenario():
+            first, init1 = await _open_ok(test_user, board)
+            assert [row["id"] for row in init1["users"]] == [str(test_user.pk)]
+            second, connected, _code = await _open(test_user, board)
+            assert connected
+            init2 = await second.receive_json_from()
+            assert init2["type"] == "init"
+            assert [row["id"] for row in init2["users"]] == [str(test_user.pk)]
+            assert await first.receive_nothing(timeout=0.3)
+            await first.disconnect()
+            assert await second.receive_nothing(timeout=0.3)
+            await second.disconnect()
+
+        async_to_sync(scenario)()

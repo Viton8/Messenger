@@ -10,16 +10,22 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 
+from chat.group_services import get_participant
+
 from .broadcast import board_group_name, board_user_group_name
 from .models import Board
 from .ops import apply_ops, live_snapshot
-from .presence import presence_join, presence_leave, presence_users
+from .presence import presence_join, presence_leave
 from .protocol import (
     ProtocolError,
     parse_client_op_id,
     parse_object_id,
     sanitize_transient_patch,
 )
+
+
+def _reject_nonfinite(_name):
+    raise ValueError("Non-finite JSON numbers are not allowed.")
 
 
 class RateWindow:
@@ -48,6 +54,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
         self.chat_id = None
         self.board_group = None
         self.user_group = None
+        self.can_edit = False
         self._ops_rate = RateWindow(settings.BOARDS_OPS_PER_SECOND)
         self._cursor_rate = RateWindow(settings.BOARDS_TRANSIENT_PER_SECOND)
         self._transient_rate = RateWindow(settings.BOARDS_TRANSIENT_PER_SECOND)
@@ -60,12 +67,13 @@ class BoardConsumer(AsyncWebsocketConsumer):
             await self.close(code=4403)
             return
         self.chat_id = str(access["chat_id"])
+        self.can_edit = access["can_edit"]
         self.board_group = board_group_name(self.board_id)
         self.user_group = board_user_group_name(self.user.pk)
         await self.channel_layer.group_add(self.board_group, self.channel_name)
         await self.channel_layer.group_add(self.user_group, self.channel_name)
         await self.accept()
-        users = await self._presence_join()
+        users, first = await self._presence_join()
         await self.send(
             text_data=json.dumps(
                 {
@@ -76,49 +84,48 @@ class BoardConsumer(AsyncWebsocketConsumer):
                 }
             )
         )
-        await self.channel_layer.group_send(
-            self.board_group,
-            {
-                "type": "board.presence",
-                "payload": {
-                    "type": "presence",
-                    "action": "join",
-                    "user": {"id": str(self.user.pk), "username": self.user.username},
-                },
-            },
-        )
-
-    async def disconnect(self, close_code):
-        if self.board_group:
-            await self._presence_leave()
+        if first:
             await self.channel_layer.group_send(
                 self.board_group,
                 {
                     "type": "board.presence",
                     "payload": {
                         "type": "presence",
-                        "action": "leave",
-                        "user": {
-                            "id": str(self.user.pk),
-                            "username": self.user.username,
-                        },
+                        "action": "join",
+                        "user": {"id": str(self.user.pk), "username": self.user.username},
                     },
                 },
             )
+
+    async def disconnect(self, close_code):
+        if self.board_group:
+            _users, last = await self._presence_leave()
+            if last and getattr(self, "user", None) is not None:
+                await self.channel_layer.group_send(
+                    self.board_group,
+                    {
+                        "type": "board.presence",
+                        "payload": {
+                            "type": "presence",
+                            "action": "leave",
+                            "user": {
+                                "id": str(self.user.pk),
+                                "username": self.user.username,
+                            },
+                        },
+                    },
+                )
             await self.channel_layer.group_discard(self.board_group, self.channel_name)
         if self.user_group:
             await self.channel_layer.group_discard(self.user_group, self.channel_name)
 
     async def receive(self, text_data):
-        if not await self._still_member():
-            await self.close(code=4403)
-            return
         raw = text_data if isinstance(text_data, str) else text_data.decode("utf-8")
         if len(raw.encode("utf-8")) > int(settings.BOARDS_MAX_MESSAGE_BYTES):
             await self._error("too_large", "Message is too large.")
             return
         try:
-            data = json.loads(raw)
+            data = json.loads(raw, parse_constant=_reject_nonfinite)
         except (TypeError, ValueError):
             await self._error("bad_payload", "Message must be JSON.")
             return
@@ -127,6 +134,9 @@ class BoardConsumer(AsyncWebsocketConsumer):
             return
         kind = data.get("type")
         if kind == "ops":
+            if not await self._still_member():
+                await self.close(code=4403)
+                return
             await self._handle_ops(data)
         elif kind == "cursor":
             await self._handle_cursor(data)
@@ -207,6 +217,9 @@ class BoardConsumer(AsyncWebsocketConsumer):
         )
 
     async def _handle_transient(self, data):
+        if not self.can_edit:
+            await self._error("locked", "This board is locked.")
+            return
         if not self._transient_rate.allow():
             await self._error("rate_limited", "Too many transient updates.")
             return
@@ -244,14 +257,14 @@ class BoardConsumer(AsyncWebsocketConsumer):
         )
         if board is None or not board.chat.is_group:
             return None
-        from chat.models import ChatParticipant
-
-        if not ChatParticipant.objects.filter(chat=board.chat, user=self.user).exists():
+        participant = get_participant(board.chat, self.user)
+        if participant is None:
             return None
         return {
             "chat_id": board.chat_id,
             "seq": board.seq,
             "objects": live_snapshot(board),
+            "can_edit": (not board.is_locked) or participant.is_admin(),
         }
 
     @database_sync_to_async
@@ -259,9 +272,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
         board = Board.objects.select_related("chat").filter(pk=self.board_id).first()
         if board is None:
             return False
-        from chat.models import ChatParticipant
-
-        return ChatParticipant.objects.filter(chat=board.chat, user=self.user).exists()
+        return get_participant(board.chat, self.user) is not None
 
     @database_sync_to_async
     def _apply_ops(self, ops):
@@ -269,8 +280,8 @@ class BoardConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _presence_join(self):
-        return presence_join(self.board_id, self.user)
+        return presence_join(self.board_id, self.user, self.channel_name)
 
     @database_sync_to_async
     def _presence_leave(self):
-        presence_leave(self.board_id, self.user)
+        return presence_leave(self.board_id, self.user, self.channel_name)

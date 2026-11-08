@@ -7,6 +7,7 @@ the field is required for the op to make sense (path points, object id).
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 
@@ -92,7 +93,7 @@ def parse_client_op_id(raw):
 
 
 def _is_number(value):
-    return type(value) is int or type(value) is float
+    return (type(value) is int or type(value) is float) and math.isfinite(value)
 
 
 def _clamp_number(value, lo, hi):

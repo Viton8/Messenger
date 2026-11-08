@@ -8,6 +8,10 @@ New accounts stay inactive until the person opens the confirmation link. Sign-in
 
 `ACCOUNT_EMAIL_CONFIRMATION_REQUIRED` defaults to true. Set it to false only for local testing: registration then creates an active account, sends no mail, and signs the person in. If `DEBUG` is false and the switch is false, Django refuses to start and `manage.py check` reports `accounts.E001`.
 
+## Origin validation
+
+WebSocket connections go through Channels `AllowedHostsOriginValidator` around `AuthMiddlewareStack` in `config/asgi.py`. The Origin host must be in `ALLOWED_HOSTS`. An empty `ALLOWED_HOSTS` list while `DEBUG` is false raises `ImproperlyConfigured` at import and `manage.py check` reports `accounts.E002`. This does not inspect cookies by itself; session auth still runs after Origin is accepted.
+
 Until SMTP is configured, mail is printed in the `web` container logs (`EMAIL_BACKEND` defaults to the console backend). Real delivery needs `EMAIL_HOST` and `django.core.mail.backends.smtp.EmailBackend`.
 
 Password reset and confirmation links expire after Django's `PASSWORD_RESET_TIMEOUT` (three days). A confirmation link stops working once the account is activated. Password reset mail is sent only to active accounts. Someone who has not confirmed yet uses the confirmation link, or the resend form. The resend answer is the same whether or not an account is waiting.
@@ -78,15 +82,15 @@ A member may `PATCH` or `DELETE` `/api/chat/chats/<id>/messages/<id>/` for their
 
 Boards exist only on group chats (`Chat.is_group`). Any member may create a board and list boards (`POST`/`GET /api/chat/groups/<id>/boards/`). The creator (while still a member) or an admin/owner may rename or delete a board. Only admin/owner may set `is_locked`. Checks live in `boards/services.py`. Creating a board also stores a `Message` with `kind=board` and fans it out on the chat channel. Deleting the board row sets that card's `deleted_at`; clients see "Board deleted" and the `board` FK is cleared (`SET_NULL`). `BOARDS_MAX_PER_GROUP` (default 20) is enforced on create; a full group returns 400.
 
-`seq` increases by one for each accepted ops WebSocket message on `ws/boards/<id>/`. A locked board (`is_locked`) refuses ops from anyone who is not admin or owner; init, presence, cursors, and transient frames still go through. There are no boards on direct chats.
+`seq` increases by one for each accepted ops WebSocket message on `ws/boards/<id>/`. `can_edit` is true unless the board is locked and the viewer is not admin/owner. A locked board refuses ops and transient frames from anyone without `can_edit`; init, presence, and cursors still go through. There are no boards on direct chats.
 
 ## Board sync protocol
 
-The drawing lives in `BoardObject` rows. The browser is not trusted: `boards/protocol.py` keeps a type whitelist (`rect`, `ellipse`, `line`, `path`, `textbox`, `arrow`, `sticker`) and drops unknown properties. Unknown types reject the whole ops message. There are no images or URLs. Path `points` are capped at 500; text at 2000 characters; numbers have fixed ranges. `fill`/`stroke` are `#RGB`, `#RRGGBB`, or `transparent`. Font families are a short list.
+The drawing lives in `BoardObject` rows. The browser is not trusted: `boards/protocol.py` keeps a type whitelist (`rect`, `ellipse`, `line`, `path`, `textbox`, `arrow`, `sticker`) and drops unknown properties. Unknown types reject the whole ops message. There are no images or URLs. Path `points` are capped at 500; text at 2000 characters; numbers have fixed ranges and must be finite (`NaN` / `Infinity` are rejected in sanitizer and in `json.loads(..., parse_constant=...)`). `fill`/`stroke` are `#RGB`, `#RRGGBB`, or `transparent`. Font families are a short list. An object UUID is global: adding the same id on a second board is `duplicate_id`.
 
-`BoardConsumer` accepts only a signed-in member of the board's group (close 4401 / 4403). Connect sends `{type: init, seq, objects, users}`. An ops message is applied in one transaction: `select_for_update` on `Board`, last-write-wins **per field** on patch, then `seq += 1` once. The fan-out `{type: ops, seq, user, ops, client_op_id}` includes the sender (that is the ack). Cursor and transient frames are not stored.
+`BoardConsumer` accepts only a signed-in member of the board's group (close 4401 / 4403). Connect sends `{type: init, seq, objects, users}`. Membership is re-checked only on ops frames; kick/leave still close sockets with `board_force_close`. An ops message is applied in one transaction: `select_for_update` on `Board`, last-write-wins **per field** on patch, then `seq += 1` once. The fan-out `{type: ops, seq, user, ops, client_op_id}` includes the sender (that is the ack). Cursor and transient frames are not stored. Presence is a Redis (or in-test memory) hash keyed by `channel_name`; the client list is unique users, and leave is sent when the last tab closes.
 
-Limits (settings): 2000 live objects per board, 256 KiB per WebSocket frame, 30 ops messages per second per socket, 20 cursor and 20 transient messages per second per socket. Excess ops are an error and do not change `seq`. Removing a member or deleting the board sends `board_force_close` so sockets drop immediately, not on the next receive.
+Limits (settings): 2000 live objects per board, 100 ops per message, 256 KiB per WebSocket frame, 30 ops messages per second per socket, 20 cursor and 20 transient messages per second per socket. Excess ops are an error and do not change `seq`. Removing a member or deleting the board sends `board_force_close` so sockets drop immediately, not on the next receive.
 
 This does not implement OT/CRDT, server-side undo, or more than one seq bump per ops frame.
 

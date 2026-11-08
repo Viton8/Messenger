@@ -2407,12 +2407,46 @@ body.board-screen .site-footer {
   gap: 0.5rem 1rem;
 }
 
-.board-page__bar .game-back {
+.board-back {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
+
+.board-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+  color: var(--game-text);
+}
+
+.board-page__bar .board-back {
   margin-bottom: 0;
 }
 
-.board-page__bar .game-title {
+.board-page__bar .board-title {
   margin: 0;
+}
+
+.board-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: var(--game-radius-sm);
+  border: 1px solid var(--game-border);
+  background: var(--game-surface-elevated);
+  color: var(--game-text);
+  cursor: pointer;
+}
+
+.board-btn:focus-visible {
+  outline: 2px solid #f0d56a;
+  outline-offset: 2px;
 }
 
 .board-page__lock {

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from django.conf import settings
-from django.db import transaction
-from django.db.models import Max
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Max
+from django.utils import timezone
 
 from chat.group_services import get_participant
 
@@ -48,6 +49,9 @@ def apply_ops(board_id, user, ops):
     """
     if not isinstance(ops, list) or not ops:
         raise ProtocolError("bad_payload", "ops must be a non-empty list.")
+    limit = int(settings.BOARDS_MAX_OPS_PER_MESSAGE)
+    if len(ops) > limit:
+        raise ProtocolError("too_many_ops", "Too many ops in one message.")
     with transaction.atomic():
         board = (
             Board.objects.select_for_update()
@@ -59,24 +63,31 @@ def apply_ops(board_id, user, ops):
             raise PermissionError("You are not a member of this chat.")
         if board.is_locked and not participant.is_admin():
             raise ProtocolError("locked", "This board is locked.")
+        stats = _live(board).aggregate(n=Count("id"), top=Max("z"))
+        live_count = int(stats["n"] or 0)
+        top = stats["top"]
+        ctx = {
+            "live_count": live_count,
+            "next_z": 0 if top is None else int(top) + 1,
+        }
         applied = []
         for raw in ops:
-            applied.append(_apply_one(board, user, raw))
+            applied.append(_apply_one(board, user, raw, ctx))
         board.seq = int(board.seq) + 1
         board.save(update_fields=["seq"])
         return board, applied
 
 
-def _apply_one(board, user, raw):
+def _apply_one(board, user, raw, ctx):
     if not isinstance(raw, dict):
         raise ProtocolError("bad_payload", "Each op must be an object.")
     kind = raw.get("op")
     if kind == "add":
-        return _add(board, user, raw)
+        return _add(board, user, raw, ctx)
     if kind == "patch":
         return _patch(board, user, raw)
     if kind == "remove":
-        return _remove(board, user, raw)
+        return _remove(board, user, raw, ctx)
     if kind == "z":
         return _reorder(board, user, raw)
     raise ProtocolError("bad_payload", "Unknown op.")
@@ -86,14 +97,7 @@ def _live(board):
     return BoardObject.objects.filter(board=board, deleted=False)
 
 
-def _next_z(board):
-    current = _live(board).aggregate(top=Max("z"))["top"]
-    if current is None:
-        return 0
-    return int(current) + 1
-
-
-def _add(board, user, raw):
+def _add(board, user, raw, ctx):
     oid = parse_object_id(raw.get("id"))
     obj_type = extract_type(raw)
     payload = raw.get("data") if isinstance(raw.get("data"), dict) else {}
@@ -101,21 +105,23 @@ def _add(board, user, raw):
     existing = BoardObject.objects.filter(pk=oid, board=board).first()
     if existing is not None and not existing.deleted:
         raise ProtocolError("duplicate_id", "That object already exists.")
-    live_count = _live(board).count()
     if existing is None or existing.deleted:
-        if live_count >= int(settings.BOARDS_MAX_LIVE_OBJECTS):
+        if ctx["live_count"] >= int(settings.BOARDS_MAX_LIVE_OBJECTS):
             raise ProtocolError("limit", "This board is full.")
-    z = _next_z(board)
+    z = ctx["next_z"]
     if existing is None:
-        BoardObject.objects.create(
-            id=oid,
-            board=board,
-            type=obj_type,
-            data=data,
-            z=z,
-            deleted=False,
-            updated_by=user,
-        )
+        try:
+            BoardObject.objects.create(
+                id=oid,
+                board=board,
+                type=obj_type,
+                data=data,
+                z=z,
+                deleted=False,
+                updated_by=user,
+            )
+        except IntegrityError as exc:
+            raise ProtocolError("duplicate_id", "That object already exists.") from exc
     else:
         existing.type = obj_type
         existing.data = data
@@ -123,6 +129,8 @@ def _add(board, user, raw):
         existing.deleted = False
         existing.updated_by = user
         existing.save()
+    ctx["live_count"] += 1
+    ctx["next_z"] = z + 1
     return {"op": "add", "id": str(oid), "type": obj_type, "data": data, "z": z}
 
 
@@ -146,12 +154,13 @@ def _patch(board, user, raw):
     return {"op": "patch", "id": str(oid), "patch": cleaned}
 
 
-def _remove(board, user, raw):
+def _remove(board, user, raw, ctx):
     oid = parse_object_id(raw.get("id"))
     row = _get_live(board, oid)
     row.deleted = True
     row.updated_by = user
     row.save(update_fields=["deleted", "updated_by", "updated_at"])
+    ctx["live_count"] = max(0, ctx["live_count"] - 1)
     return {"op": "remove", "id": str(oid)}
 
 
@@ -167,9 +176,15 @@ def _reorder(board, user, raw):
         raise ProtocolError("invalid_object", "z index is out of range.")
     live = [item for item in live if item.pk != row.pk]
     live.insert(index, row)
+    now = timezone.now()
+    changed = []
     for z, item in enumerate(live):
-        if item.z != z or item.pk == row.pk:
-            item.z = z
-            item.updated_by = user
-            item.save(update_fields=["z", "updated_by", "updated_at"])
+        if item.z == z:
+            continue
+        item.z = z
+        item.updated_by = user
+        item.updated_at = now
+        changed.append(item)
+    if changed:
+        BoardObject.objects.bulk_update(changed, ["z", "updated_by", "updated_at"])
     return {"op": "z", "id": str(oid), "index": index}

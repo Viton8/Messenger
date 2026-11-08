@@ -8,8 +8,8 @@
 {% block content %}
 <div class="board-page" data-board-root data-read-only="{{ read_only|yesno:'true,false' }}">
   <header class="board-page__bar">
-    <a class="game-back" href="{{ back_url }}">← Back to chat</a>
-    <h1 class="game-title">{{ board.title }}</h1>
+    <a class="board-back" href="{{ back_url }}">← Back to chat</a>
+    <h1 class="board-title">{{ board.title }}</h1>
     {% if board.is_locked %}
     <span class="board-page__lock">Locked</span>
     {% endif %}
@@ -95,7 +95,7 @@
         <li><kbd>Ctrl+0</kbd> Fit all</li>
         <li><kbd>?</kbd> This help</li>
       </ul>
-      <button type="submit" class="game-btn game-btn--secondary">Close</button>
+      <button type="submit" class="board-btn">Close</button>
     </form>
   </dialog>
 </div>

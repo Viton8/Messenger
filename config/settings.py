@@ -14,6 +14,8 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Load .env
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -34,8 +36,6 @@ ACCOUNT_EMAIL_CONFIRMATION_REQUIRED = (
     os.getenv("ACCOUNT_EMAIL_CONFIRMATION_REQUIRED", "True") == "True"
 )
 if not DEBUG and not ACCOUNT_EMAIL_CONFIRMATION_REQUIRED:
-    from django.core.exceptions import ImproperlyConfigured
-
     raise ImproperlyConfigured(
         "ACCOUNT_EMAIL_CONFIRMATION_REQUIRED cannot be disabled when DEBUG is False."
     )
@@ -52,6 +52,7 @@ BOARDS_MAX_LIVE_OBJECTS = int(os.getenv("BOARDS_MAX_LIVE_OBJECTS", "2000"))
 BOARDS_MAX_MESSAGE_BYTES = int(os.getenv("BOARDS_MAX_MESSAGE_BYTES", "262144"))
 BOARDS_OPS_PER_SECOND = int(os.getenv("BOARDS_OPS_PER_SECOND", "30"))
 BOARDS_TRANSIENT_PER_SECOND = int(os.getenv("BOARDS_TRANSIENT_PER_SECOND", "20"))
+BOARDS_MAX_OPS_PER_MESSAGE = int(os.getenv("BOARDS_MAX_OPS_PER_MESSAGE", "100"))
 
 CACHES = {
     "default": {
@@ -60,7 +61,15 @@ CACHES = {
     }
 }
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        "ALLOWED_HOSTS must be set when DEBUG is False."
+    )
 
 
 # Application definition

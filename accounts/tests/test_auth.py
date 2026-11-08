@@ -285,6 +285,21 @@ class TestTemplateAuth:
         with override_settings(DEBUG=True, ACCOUNT_EMAIL_CONFIRMATION_REQUIRED=False):
             assert check_email_confirmation_required(None) == []
 
+    def test_empty_allowed_hosts_fails_production_check(self):
+        """Production must not boot with an empty ALLOWED_HOSTS list."""
+        from django.test import override_settings
+
+        from accounts.checks import check_allowed_hosts
+
+        with override_settings(DEBUG=False, ALLOWED_HOSTS=[]):
+            errors = check_allowed_hosts(None)
+            assert errors
+            assert errors[0].id == "accounts.E002"
+        with override_settings(DEBUG=False, ALLOWED_HOSTS=["example.com"]):
+            assert check_allowed_hosts(None) == []
+        with override_settings(DEBUG=True, ALLOWED_HOSTS=[]):
+            assert check_allowed_hosts(None) == []
+
     def test_email_requests_are_rate_limited(self, client, user_factory, api_client):
         """Password reset and registration stop after the configured number of tries."""
         from django.core.cache import cache
