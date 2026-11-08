@@ -1,5 +1,5 @@
 {% for field in form %}
-<div class="auth-field game-form__full{% if field.errors %} is-invalid{% endif %}" data-field="{{ field.name }}">
+<div class="auth-field stack-form__full{% if field.errors %} is-invalid{% endif %}" data-field="{{ field.name }}">
   <label class="auth-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
   {% if field.field.widget.input_type == "password" %}
   <div class="auth-field__control">

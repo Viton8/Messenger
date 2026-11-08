@@ -1,0 +1,53 @@
+/* Design tokens. Light is default; dark via data-theme or prefers-color-scheme. */
+
+:root,
+html[data-theme="light"] {
+  --bg: #f7f7f8;
+  --surface-1: #ffffff;
+  --surface-2: #f0f0f2;
+  --text: #1a1a1e;
+  --text-muted: #5c5c66;
+  --border: #d8d8de;
+  --accent: #5b5bd6;
+  --accent-bg: #ececff;
+  --danger: #c62828;
+  --success: #2e7d32;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --focus: 2px solid var(--accent);
+}
+
+html[data-theme="dark"] {
+  --bg: #121214;
+  --surface-1: #1c1c1f;
+  --surface-2: #26262a;
+  --text: #f2f2f4;
+  --text-muted: #a8a8b3;
+  --border: #3a3a42;
+  --accent: #7b7be6;
+  --accent-bg: #2a2a4d;
+  --danger: #ef9a9a;
+  --success: #81c784;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    --bg: #121214;
+    --surface-1: #1c1c1f;
+    --surface-2: #26262a;
+    --text: #f2f2f4;
+    --text-muted: #a8a8b3;
+    --border: #3a3a42;
+    --accent: #7b7be6;
+    --accent-bg: #2a2a4d;
+    --danger: #ef9a9a;
+    --success: #81c784;
+  }
+}

@@ -71,6 +71,27 @@ docker compose run --rm web pytest -v
 
 Confirmation mail is printed in the `web` container logs (`EMAIL_BACKEND` defaults to the console backend).
 
+### Design tokens
+
+UI colors and spacing live in `accounts/static/ui/css/tokens.css`. Light is the default (`:root` / `html[data-theme="light"]`). Dark is `html[data-theme="dark"]`, or `prefers-color-scheme: dark` when `data-theme` is unset.
+
+| Token | Light | Dark |
+| --- | --- | --- |
+| `--bg` | `#F7F7F8` | `#121214` |
+| `--surface-1` | `#FFFFFF` | `#1C1C1F` |
+| `--surface-2` | `#F0F0F2` | `#26262A` |
+| `--text` | `#1A1A1E` | `#F2F2F4` |
+| `--text-muted` | `#5C5C66` | `#A8A8B3` |
+| `--accent` | `#5B5BD6` | `#7B7BE6` |
+| `--accent-bg` | `#ECECFF` | `#2A2A4D` |
+| `--danger` / `--success` | `#C62828` / `#2E7D32` | `#EF9A9A` / `#81C784` |
+| `--radius` / `--radius-sm` | `12px` / `8px` | same |
+| `--font` | `ui-sans-serif, system-ui, "Segoe UI", sans-serif` | same |
+
+The profile page writes `light` or `dark` to `localStorage` key `messenger-theme`. An inline script in `base.html` applies that (or the system preference) before CSS loads.
+
+Stylesheets, loaded in this order: `tokens.css`, `base.css`, `layout.css`, `chat.css`, `board.css`, `auth.css`. Cache-bust `asset_css_v` is the newest mtime in that folder.
+
 ### Chat: API and templates
 
 REST (session auth as configured for DRF):
@@ -87,17 +108,26 @@ Same behaviour in server-rendered UI (login required):
 
 Blocking uses `accounts.Block`: the blocked user cannot send **direct** messages to the blocker; group chats are unchanged.
 
-Group boards open at `/boards/<uuid>/` (local canvas editor; drawing is not saved to the server yet).
+Group boards open at `/boards/<uuid>/`. The page connects to `ws/boards/<uuid>/` so members share the drawing in real time (cursors, presence, and a server-side lock).
 
 ### Board editor JS tests
 
 The editor modules are ES modules. From the repository root, with **Node 18+** on the host (the `web` container has no Node):
 
 ```bash
-node --test boards/static/boards/js/serialize.test.js boards/static/boards/js/history.test.js
+node --test boards/static/boards/js/serialize.test.js boards/static/boards/js/history.test.js boards/static/boards/js/store.test.js boards/static/boards/js/sync.test.js
 ```
 
 That runs the `node:test` files next to the editor modules (no npm install).
+
+### Board collaboration (manual)
+
+Use two browsers, two accounts, same group board:
+
+1. Draw a rectangle in A; it appears in B without a reload.
+2. Drag the same object in both windows; the other client shows a live preview, then the committed position.
+3. Lock the board as admin/owner; the member switches to read-only (tools hidden) without reload. Unlock restores editing.
+4. DevTools → Network → Offline (or stop the `web` container briefly): the overlay shows «Переподключение…», pan/zoom still work, drawing does not. Back online, unconfirmed ops are resent.
 
 ### 6. Stop containers
 

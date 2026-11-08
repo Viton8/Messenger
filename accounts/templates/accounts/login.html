@@ -4,12 +4,12 @@
 {% block title %}Login — messenger{% endblock %}
 
 {% block content %}
-<div class="game-page game-page--narrow">
-  <section class="game-panel game-panel--auth">
-    <h1 class="game-title">Welcome back</h1>
-    <p class="game-lead">Sign in to open your chats.</p>
+<div class="auth-page">
+  <section class="panel auth-panel">
+    <h1 class="page-title">Welcome back</h1>
+    <p class="lead">Sign in to open your chats.</p>
 
-    <form method="post" class="game-form game-form--stacked auth-form" data-auth-form="login" novalidate>
+    <form method="post" class="stack-form auth-form" data-auth-form="login" novalidate>
       {% csrf_token %}
       {% if form.non_field_errors %}
       <div class="form-errors auth-form__banner" role="alert">
@@ -20,14 +20,14 @@
       {% endif %}
       {% include "accounts/includes/auth_fields.html" with show_forgot_password=True %}
       <div class="auth-form__actions">
-        <button type="submit" class="game-btn game-btn--primary game-btn--block auth-submit" data-loading-label="Signing in…">
+        <button type="submit" class="btn btn--primary btn--block auth-submit" data-loading-label="Signing in…">
           <span class="auth-submit__spinner" aria-hidden="true"></span>
           <span class="auth-submit__label">Sign in</span>
         </button>
       </div>
     </form>
 
-    <p class="game-footnote">
+    <p class="footnote">
       No account yet? <a href="{% url 'register' %}">Create one</a>
     </p>
   </section>

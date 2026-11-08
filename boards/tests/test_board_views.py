@@ -37,6 +37,8 @@ class TestBoardTemplateViews:
         assert 'type="module"' in html
         assert "boards/js/main.js" in html
         assert 'data-board-toolbar' in html
+        assert f'data-board-id="{board.pk}"' in html
+        assert 'data-login-url="' in html
         assert 'data-read-only="false"' in html
         assert "aria-label=\"Select (V)\"" in html
 

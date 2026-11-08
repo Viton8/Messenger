@@ -2,6 +2,31 @@
  * Local undo/redo. Each user action is a pair of protocol ops (forward + inverse).
  */
 
+export function filterOpsForStore(store, ops) {
+  const live = new Set(store.snapshot().map((row) => String(row.id)));
+  const out = [];
+  for (const op of ops || []) {
+    if (!op || typeof op !== "object") {
+      continue;
+    }
+    const id = op.id != null ? String(op.id) : "";
+    if (op.op === "add") {
+      if (!live.has(id)) {
+        out.push(op);
+        live.add(id);
+      }
+    } else if (op.op === "remove" || op.op === "patch" || op.op === "z") {
+      if (live.has(id)) {
+        out.push(op);
+        if (op.op === "remove") {
+          live.delete(id);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function invertOps(store, ops) {
   const inverse = [];
   const simulated = new Map();
@@ -63,8 +88,10 @@ export function invertOps(store, ops) {
 }
 
 export class History {
-  constructor(store) {
+  constructor(store, { onStale } = {}) {
     this.store = store;
+    this.onStale = onStale || null;
+    this.onCommit = null;
     this._undo = [];
     this._redo = [];
   }
@@ -78,26 +105,39 @@ export class History {
     this.store.applyOps(forward);
     this._undo.push({ forward, inverse });
     this._redo = [];
+    if (this.onCommit) {
+      this.onCommit(forward);
+    }
   }
 
   undo() {
-    const item = this._undo.pop();
-    if (!item) {
-      return false;
-    }
-    this.store.applyOps(item.inverse);
-    this._redo.push(item);
-    return true;
+    return this._applyFromStack(this._undo, this._redo, "inverse");
   }
 
   redo() {
-    const item = this._redo.pop();
-    if (!item) {
-      return false;
+    return this._applyFromStack(this._redo, this._undo, "forward");
+  }
+
+  _applyFromStack(from, to, key) {
+    while (from.length) {
+      const item = from.pop();
+      const filtered = filterOpsForStore(this.store, item[key]);
+      if (!filtered.length) {
+        if (this.onStale) {
+          this.onStale();
+        }
+        continue;
+      }
+      this.store.applyOps(filtered);
+      const stored = { forward: item.forward, inverse: item.inverse };
+      stored[key] = filtered;
+      to.push(stored);
+      if (this.onCommit) {
+        this.onCommit(filtered);
+      }
+      return true;
     }
-    this.store.applyOps(item.forward);
-    this._undo.push(item);
-    return true;
+    return false;
   }
 
   canUndo() {

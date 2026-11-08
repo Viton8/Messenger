@@ -4,6 +4,7 @@ import math
 
 import pytest
 
+from boards.colors import USER_COLORS, user_color
 from boards.protocol import ProtocolError, sanitize_properties
 
 
@@ -49,3 +50,19 @@ class TestProtocolNumbers:
         data = sanitize_properties("rect", {"x": 1.5, "y": -2.0, "width": 3, "height": 4})
         assert data["x"] == 1.5
         assert math.isfinite(data["x"])
+
+
+class TestUserColor:
+    """Presence colors are stable and come from the server palette."""
+
+    def test_same_id_is_stable(self):
+        """The same user id always maps to the same hex."""
+        first = user_color(7)
+        second = user_color("7")
+        assert first == second
+        assert first in USER_COLORS
+
+    def test_palette_has_twelve_colors(self):
+        """The public palette is twelve contrasting hex values."""
+        assert len(USER_COLORS) == 12
+        assert len(set(USER_COLORS)) == 12

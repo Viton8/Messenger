@@ -3,23 +3,23 @@
 {% block title %}{% if invalid %}Invite expired{% else %}Join {{ chat.name }}{% endif %} — messenger{% endblock %}
 
 {% block content %}
-<div class="game-page game-page--narrow chat-start">
-  <a class="game-back" href="{% url 'chat:inbox' %}">← Back to chats</a>
+<div class="narrow-page chat-start">
+  <a class="back-link" href="{% url 'chat:inbox' %}">← Back to chats</a>
 
-  <section class="game-panel">
+  <section class="panel">
     {% if invalid %}
-    <h1 class="game-title">Invite not valid</h1>
-    <p class="game-lead">This link is expired or was revoked. Ask a group admin for a new one.</p>
+    <h1 class="page-title">Invite not valid</h1>
+    <p class="lead">This link is expired or was revoked. Ask a group admin for a new one.</p>
     {% else %}
-    <h1 class="game-title">Join {{ chat.name }}</h1>
+    <h1 class="page-title">Join {{ chat.name }}</h1>
     {% if chat.description %}
-    <p class="game-lead">{{ chat.description }}</p>
+    <p class="lead">{{ chat.description }}</p>
     {% else %}
-    <p class="game-lead">You were invited to this group.</p>
+    <p class="lead">You were invited to this group.</p>
     {% endif %}
     <form method="post">
       {% csrf_token %}
-      <button type="submit" class="game-btn game-btn--primary game-btn--block">Join group</button>
+      <button type="submit" class="btn btn--primary btn--block">Join group</button>
     </form>
     {% endif %}
   </section>

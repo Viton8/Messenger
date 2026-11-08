@@ -76,9 +76,9 @@
     var row = normalize(message);
     var mine = row.kind !== "system" && row.kind !== "board" && row.senderId && row.senderId === selfId(options);
     var line = document.createElement("div");
-    line.className = "game-chat-line";
-    if (row.kind === "system") line.classList.add("game-chat-line--system");
-    else if (row.kind === "board") line.classList.add("game-chat-line--board");
+    line.className = "chat-msg";
+    if (row.kind === "system") line.classList.add("chat-msg--system");
+    else if (row.kind === "board") line.classList.add("chat-msg--board");
     else if (mine) line.classList.add("is-mine");
     if (row.deleted) line.classList.add("is-deleted");
     line.setAttribute("data-message-id", row.id);
@@ -88,7 +88,7 @@
     line.setAttribute("data-deleted", row.deleted ? "1" : "0");
     if (row.boardId) line.setAttribute("data-board-id", row.boardId);
     var meta = document.createElement("p");
-    meta.className = "game-chat-line__meta";
+    meta.className = "chat-msg__meta";
     var name;
     var href = row.kind === "system" ? "" : profileHref(row.name);
     if (href) {
@@ -97,7 +97,7 @@
     } else {
       name = document.createElement("span");
     }
-    name.className = "game-chat-line__name";
+    name.className = "chat-msg__name";
     name.textContent = row.name;
     meta.appendChild(name);
     if (row.sent) {
@@ -108,7 +108,7 @@
     }
     if (row.edited) {
       var edited = document.createElement("span");
-      edited.className = "game-chat-line__edited";
+      edited.className = "chat-msg__edited";
       edited.textContent = "edited";
       meta.appendChild(edited);
     }
@@ -116,22 +116,33 @@
     if (row.kind === "board") {
       var card = document.createElement("div");
       card.className = "chat-board-card";
+      var preview = document.createElement("div");
+      preview.className = "chat-board-card__preview";
+      preview.setAttribute("aria-hidden", "true");
+      card.appendChild(preview);
       var title = document.createElement("p");
       title.className = "chat-board-card__title";
       title.textContent = row.content;
       card.appendChild(title);
+      if (row.sent) {
+        var updated = document.createElement("time");
+        updated.className = "chat-board-card__updated";
+        updated.dateTime = row.sent;
+        updated.textContent = formatSentAt(row.sent);
+        card.appendChild(updated);
+      }
       if (!row.deleted && row.boardUrl) {
         var open = document.createElement("a");
-        open.className = "game-btn game-btn--secondary";
+        open.className = "btn";
         open.href = row.boardUrl;
-        open.textContent = "Open board";
+        open.appendChild(document.createTextNode("Open board"));
         card.appendChild(open);
       }
       line.appendChild(card);
       return line;
     }
     var body = document.createElement("p");
-    body.className = "game-chat-line__body";
+    body.className = "chat-msg__body";
     body.textContent = row.content;
     line.appendChild(body);
     if (!row.deleted && row.kind !== "system") {
@@ -139,7 +150,7 @@
       var canDelete = mine || !!options.canModerate;
       if (canEdit || canDelete) {
         var actions = document.createElement("p");
-        actions.className = "game-chat-line__actions";
+        actions.className = "chat-msg__actions";
         if (canEdit) {
           var editBtn = document.createElement("button");
           editBtn.type = "button";
@@ -160,15 +171,42 @@
     return line;
   }
 
+  function dayKey(date) {
+    if (isNaN(date.getTime())) return "";
+    return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+  }
+
+  function formatDayLabel(date) {
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var then = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    var diff = (today.getTime() - then.getTime()) / 86400000;
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    var stamp = MONTHS[date.getMonth()] + " " + date.getDate();
+    if (date.getFullYear() !== now.getFullYear()) stamp += ", " + date.getFullYear();
+    return stamp;
+  }
+
   function paintGroups(log) {
+    log.querySelectorAll(".chat-day").forEach(function (el) { el.remove(); });
     var previous = null;
+    var previousDay = "";
     log.querySelectorAll("[data-message-id]").forEach(function (line) {
       var kind = line.getAttribute("data-kind") || "user";
-      var name = line.querySelector(".game-chat-line__name");
+      var name = line.querySelector(".chat-msg__name");
       line.classList.remove("is-grouped");
       if (name) name.classList.remove("visually-hidden");
       var sent = new Date(line.getAttribute("data-sent-at") || "");
       var sender = line.getAttribute("data-sender-id") || "";
+      var key = dayKey(sent);
+      if (key && key !== previousDay) {
+        var sep = document.createElement("p");
+        sep.className = "chat-day";
+        sep.textContent = formatDayLabel(sent);
+        line.parentNode.insertBefore(sep, line);
+      }
+      if (key) previousDay = key;
       var grouped = previous
         && kind !== "system"
         && kind !== "board"
@@ -178,6 +216,7 @@
         && sender === previous.sender
         && !isNaN(sent.getTime())
         && !isNaN(previous.sent.getTime())
+        && dayKey(sent) === dayKey(previous.sent)
         && sent.getTime() - previous.sent.getTime() < GROUP_MS
         && sent.getTime() >= previous.sent.getTime();
       if (grouped) {

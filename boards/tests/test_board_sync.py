@@ -1,17 +1,21 @@
 """Board WebSocket protocol tests via WebsocketCommunicator."""
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from asgiref.sync import async_to_sync
 from channels.db import database_sync_to_async
+from channels.layers import InMemoryChannelLayer
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth.models import AnonymousUser
 from django.test.utils import override_settings
 
+from boards.colors import public_user, user_color
 from boards.consumers import BoardConsumer
 from boards.models import Board, BoardObject
-from boards.services import create_board, delete_board
+from boards.ops import live_snapshot
+from boards.services import create_board, delete_board, update_board
 from chat.group_services import create_group, remove_member
 from chat.models import ChatParticipant
 
@@ -101,7 +105,11 @@ class TestBoardSync:
             communicator, init = await _open_ok(test_user, board)
             assert init["seq"] == 0
             assert init["objects"] == []
-            assert any(row["id"] == str(test_user.pk) for row in init["users"])
+            assert init["can_edit"] is True
+            me = public_user(test_user)
+            assert init["self"] == me
+            assert any(row == me for row in init["users"])
+            assert all("color" in row for row in init["users"])
             await communicator.disconnect()
 
         async_to_sync(scenario)()
@@ -233,13 +241,14 @@ class TestBoardSync:
             await alice.send_json_to({"type": "cursor", "x": 9, "y": 12})
             cursor = await _until(bob, "cursor")
             assert cursor["x"] == 9
-            assert cursor["user"]["id"] == str(test_user.pk)
+            assert cursor["user"] == public_user(test_user)
             await alice.send_json_to(
                 {"type": "transient", "id": oid, "patch": {"x": 3, "y": 4}}
             )
             transient = await _until(bob, "transient")
             assert transient["id"] == oid
             assert transient["patch"]["x"] == 3
+            assert transient["user"]["color"] == user_color(test_user.pk)
             await alice.disconnect()
             await bob.disconnect()
 
@@ -346,9 +355,11 @@ class TestBoardSync:
         board.save(update_fields=["is_locked"])
 
         async def scenario():
-            owner, _ = await _open_ok(test_user, board)
-            member, _ = await _open_ok(second_user, board)
+            owner, owner_init = await _open_ok(test_user, board)
+            member, member_init = await _open_ok(second_user, board)
             await _until(owner, "presence")
+            assert owner_init["can_edit"] is True
+            assert member_init["can_edit"] is False
             await member.send_json_to(
                 {"type": "ops", "client_op_id": "m1", "ops": [_rect(_oid())]}
             )
@@ -532,5 +543,101 @@ class TestBoardSync:
             await first.disconnect()
             assert await second.receive_nothing(timeout=0.3)
             await second.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_group_add_happens_before_snapshot(self, test_user):
+        """Subscribe to the board group before reading the init snapshot."""
+        chat = create_group(test_user, "Desk")
+        board = create_board(chat, test_user, "Wall")
+        order = []
+        orig_snapshot = live_snapshot
+        orig_group_add = InMemoryChannelLayer.group_add
+
+        def tracking_snapshot(*args, **kwargs):
+            order.append("snapshot")
+            return orig_snapshot(*args, **kwargs)
+
+        async def tracking_group_add(self, group, channel):
+            order.append("group_add")
+            return await orig_group_add(self, group, channel)
+
+        async def scenario():
+            with (
+                patch("boards.consumers.live_snapshot", tracking_snapshot),
+                patch.object(InMemoryChannelLayer, "group_add", tracking_group_add),
+            ):
+                communicator, connected, _code = await _open(test_user, board)
+                assert connected
+                await communicator.receive_json_from()
+                await communicator.receive_json_from()
+                await communicator.disconnect()
+
+        async_to_sync(scenario)()
+        assert "group_add" in order
+        assert "snapshot" in order
+        assert order.index("group_add") < order.index("snapshot")
+
+    def test_resync_resends_init_and_is_rate_limited(self, test_user):
+        """resync repeats init; a second call within 2s is rate_limited."""
+        chat = create_group(test_user, "Desk")
+        board = create_board(chat, test_user, "Wall")
+        oid = _oid()
+
+        async def scenario():
+            communicator, init = await _open_ok(test_user, board)
+            await communicator.send_json_to(
+                {"type": "ops", "client_op_id": "a1", "ops": [_rect(oid)]}
+            )
+            await _until(communicator, "ops")
+            await communicator.send_json_to({"type": "resync"})
+            again = await _until(communicator, "init")
+            assert again["seq"] == 1
+            assert again["can_edit"] is True
+            assert any(obj["id"] == oid for obj in again["objects"])
+            assert again["self"]["id"] == str(test_user.pk)
+            await communicator.send_json_to({"type": "resync"})
+            error = await _until(communicator, "error")
+            assert error["code"] == "rate_limited"
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_lock_event_updates_can_edit(self, test_user, second_user):
+        """Locking the board fans lock and can_edit; members cannot ops."""
+        chat = create_group(test_user, "Desk")
+        chat.add_participant(second_user, role="member")
+        board = create_board(chat, test_user, "Wall")
+
+        async def scenario():
+            owner, owner_init = await _open_ok(test_user, board)
+            member, member_init = await _open_ok(second_user, board)
+            await _until(owner, "presence")
+            assert owner_init["can_edit"] is True
+            assert member_init["can_edit"] is True
+            await database_sync_to_async(update_board)(
+                board, test_user, is_locked=True
+            )
+            lock_member = await _until(member, "lock")
+            assert lock_member["is_locked"] is True
+            can_member = await _until(member, "can_edit")
+            assert can_member["value"] is False
+            lock_owner = await _until(owner, "lock")
+            assert lock_owner["is_locked"] is True
+            can_owner = await _until(owner, "can_edit")
+            assert can_owner["value"] is True
+            await member.send_json_to(
+                {"type": "ops", "client_op_id": "m1", "ops": [_rect(_oid())]}
+            )
+            error = await _until(member, "error")
+            assert error["code"] == "locked"
+            await database_sync_to_async(update_board)(
+                board, test_user, is_locked=False
+            )
+            await _until(member, "lock")
+            unlocked = await _until(member, "can_edit")
+            assert unlocked["value"] is True
+            await owner.disconnect()
+            await member.disconnect()
 
         async_to_sync(scenario)()

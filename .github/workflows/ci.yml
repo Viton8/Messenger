@@ -71,4 +71,4 @@ jobs:
 
       - name: Run board editor JS tests
         run: |
-          node --test boards/static/boards/js/serialize.test.js boards/static/boards/js/history.test.js
+          node --test boards/static/boards/js/serialize.test.js boards/static/boards/js/history.test.js boards/static/boards/js/store.test.js boards/static/boards/js/sync.test.js

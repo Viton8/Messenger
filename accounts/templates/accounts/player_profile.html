@@ -3,8 +3,9 @@
 {% block title %}{{ player.username }} — messenger{% endblock %}
 
 {% block content %}
-<div class="game-page profile-page">
-  <section class="game-panel">
+<div class="profile-page">
+  <section class="panel">
+    <a class="back-link" href="{% url 'chat:inbox' %}">← Back to chats</a>
     <div class="profile-identity">
       <span class="profile-avatar" aria-hidden="true">
         <span class="profile-avatar__initials">{{ initials }}</span>
@@ -14,19 +15,19 @@
       </span>
       <div class="profile-identity__text">
         <p class="profile-kicker">Member</p>
-        <h1 class="game-title profile-name">{{ player.username }}</h1>
-        {% if is_self %}<p class="game-status">This is your public profile.</p>{% endif %}
+        <h1 class="page-title profile-name">{{ player.username }}</h1>
+        {% if is_self %}<p class="status">This is your public profile.</p>{% endif %}
       </div>
     </div>
 
     <div class="profile-actions">
       {% if is_self %}
-      <a class="game-btn game-btn--secondary" href="{% url 'profile' %}">Account settings</a>
+      <a class="btn" href="{% url 'profile' %}">Account settings</a>
       {% else %}
       <form method="post" action="{% url 'chat:start_direct' %}">
         {% csrf_token %}
         <input type="hidden" name="other_username" value="{{ player.username }}">
-        <button type="submit" class="game-btn game-btn--primary">Message</button>
+        <button type="submit" class="btn btn--primary">Message</button>
       </form>
       {% endif %}
     </div>

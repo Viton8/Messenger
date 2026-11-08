@@ -242,7 +242,7 @@
       return;
     }
     if (action === "edit") {
-      var body = line.querySelector(".game-chat-line__body");
+      var body = line.querySelector(".chat-msg__body");
       var current = body ? body.textContent : "";
       var next = window.prompt("Edit message", current);
       if (next == null) return;

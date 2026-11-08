@@ -42,6 +42,53 @@ export class BoardStore {
     return applied;
   }
 
+  applyRemote(ops) {
+    if (!Array.isArray(ops) || !ops.length) {
+      return [];
+    }
+    const applied = [];
+    for (const raw of ops) {
+      try {
+        applied.push(this._applyOne(raw));
+      } catch {
+        // Skip a bad remote op; keep applying the rest of the batch.
+      }
+    }
+    if (applied.length) {
+      this._emit(applied);
+    }
+    return applied;
+  }
+
+  reset(objects) {
+    this._objects = new Map();
+    if (Array.isArray(objects)) {
+      for (const raw of objects) {
+        if (!raw || raw.id == null) {
+          continue;
+        }
+        const type = raw.type || (raw.data && raw.data.type);
+        if (!ALLOWED_TYPES.has(type)) {
+          continue;
+        }
+        const data = sanitizeProperties(type, raw.data || {}, false);
+        const z = Number.isInteger(raw.z) ? raw.z : 0;
+        const id = String(raw.id);
+        this._objects.set(id, { id, type, z, data, deleted: false });
+      }
+    }
+    this._emit([{ op: "reset" }]);
+  }
+
+  setZ(id, z) {
+    const row = this._objects.get(String(id));
+    if (!row || row.deleted || !Number.isInteger(z) || row.z === z) {
+      return;
+    }
+    row.z = z;
+    this._emit([{ op: "z", id: row.id, index: z }]);
+  }
+
   _emit(ops) {
     for (const fn of this._listeners) {
       fn(ops);

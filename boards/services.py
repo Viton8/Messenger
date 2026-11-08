@@ -1,7 +1,8 @@
 """Server-side board metadata rules.
 
 The browser is not trusted. Create, rename, lock, and delete are checked
-here before the database is updated. Drawing sync is not implemented yet.
+here before the database is updated. A lock change is also fanned out on
+the board WebSocket group.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from chat.group_services import (
 from chat.models import Message
 from chat.services import broadcast_chat_message, broadcast_message_updated
 
+from .broadcast import fanout_board
 from .models import Board
 
 BOARD_TITLE_MAX = 80
@@ -130,10 +132,18 @@ def update_board(board, user, *, title=None, is_locked=None):
         if not can_rename_or_delete_board(board, user):
             raise PermissionError("You cannot rename this board.")
         board.title = normalize_board_title(title)
+    lock_changed = False
     if is_locked is not None:
-        board.is_locked = bool(is_locked)
+        new_locked = bool(is_locked)
+        lock_changed = board.is_locked != new_locked
+        board.is_locked = new_locked
     if title is not None or is_locked is not None:
         board.save()
+    if lock_changed:
+        fanout_board(
+            board.pk,
+            {"type": "board.lock", "is_locked": board.is_locked},
+        )
     return board
 
 

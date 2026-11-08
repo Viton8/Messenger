@@ -1,4 +1,4 @@
-"""WebSocket consumer for board sync. The editor is not in this module."""
+"""WebSocket consumer for board sync."""
 
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ from django.contrib.auth.models import AnonymousUser
 from chat.group_services import get_participant
 
 from .broadcast import board_group_name, board_user_group_name
+from .colors import colored_users, public_user
 from .models import Board
 from .ops import apply_ops, live_snapshot
-from .presence import presence_join, presence_leave
+from .presence import presence_join, presence_leave, presence_list
 from .protocol import (
     ProtocolError,
     parse_client_op_id,
@@ -55,6 +56,8 @@ class BoardConsumer(AsyncWebsocketConsumer):
         self.board_group = None
         self.user_group = None
         self.can_edit = False
+        self.is_admin = False
+        self._last_resync = None
         self._ops_rate = RateWindow(settings.BOARDS_OPS_PER_SECOND)
         self._cursor_rate = RateWindow(settings.BOARDS_TRANSIENT_PER_SECOND)
         self._transient_rate = RateWindow(settings.BOARDS_TRANSIENT_PER_SECOND)
@@ -68,22 +71,20 @@ class BoardConsumer(AsyncWebsocketConsumer):
             return
         self.chat_id = str(access["chat_id"])
         self.can_edit = access["can_edit"]
+        self.is_admin = access["is_admin"]
         self.board_group = board_group_name(self.board_id)
         self.user_group = board_user_group_name(self.user.pk)
         await self.channel_layer.group_add(self.board_group, self.channel_name)
         await self.channel_layer.group_add(self.user_group, self.channel_name)
         await self.accept()
         users, first = await self._presence_join()
-        await self.send(
-            text_data=json.dumps(
-                {
-                    "type": "init",
-                    "seq": access["seq"],
-                    "objects": access["objects"],
-                    "users": users,
-                }
-            )
-        )
+        snapshot = await self._load_snapshot()
+        if snapshot is None:
+            await self.close(code=4403)
+            return
+        self.can_edit = snapshot["can_edit"]
+        self.is_admin = snapshot["is_admin"]
+        await self._send_init(snapshot, users)
         if first:
             await self.channel_layer.group_send(
                 self.board_group,
@@ -92,7 +93,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
                     "payload": {
                         "type": "presence",
                         "action": "join",
-                        "user": {"id": str(self.user.pk), "username": self.user.username},
+                        "user": public_user(self.user),
                     },
                 },
             )
@@ -108,10 +109,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
                         "payload": {
                             "type": "presence",
                             "action": "leave",
-                            "user": {
-                                "id": str(self.user.pk),
-                                "username": self.user.username,
-                            },
+                            "user": public_user(self.user),
                         },
                     },
                 )
@@ -142,6 +140,8 @@ class BoardConsumer(AsyncWebsocketConsumer):
             await self._handle_cursor(data)
         elif kind == "transient":
             await self._handle_transient(data)
+        elif kind == "resync":
+            await self._handle_resync()
         else:
             await self._error("bad_payload", "Unknown message type.")
 
@@ -157,11 +157,51 @@ class BoardConsumer(AsyncWebsocketConsumer):
     async def board_presence(self, event):
         await self.send(text_data=json.dumps(event["payload"]))
 
+    async def board_lock(self, event):
+        is_locked = bool(event.get("is_locked"))
+        self.can_edit = (not is_locked) or bool(self.is_admin)
+        await self.send(
+            text_data=json.dumps({"type": "lock", "is_locked": is_locked})
+        )
+        await self.send(
+            text_data=json.dumps({"type": "can_edit", "value": self.can_edit})
+        )
+
     async def board_force_close(self, event):
         chat_id = event.get("chat_id")
         if chat_id and self.chat_id and str(chat_id) != str(self.chat_id):
             return
         await self.close(code=4403)
+
+    async def _handle_resync(self):
+        now = time.monotonic()
+        interval = float(settings.BOARDS_RESYNC_MIN_INTERVAL)
+        if self._last_resync is not None and (now - self._last_resync) < interval:
+            await self._error("rate_limited", "Resync is rate limited.")
+            return
+        self._last_resync = now
+        snapshot = await self._load_snapshot()
+        if snapshot is None:
+            await self.close(code=4403)
+            return
+        self.can_edit = snapshot["can_edit"]
+        self.is_admin = snapshot["is_admin"]
+        users = await self._presence_list()
+        await self._send_init(snapshot, users)
+
+    async def _send_init(self, snapshot, users):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "init",
+                    "seq": snapshot["seq"],
+                    "objects": snapshot["objects"],
+                    "can_edit": snapshot["can_edit"],
+                    "self": public_user(self.user),
+                    "users": colored_users(users),
+                }
+            )
+        )
 
     async def _handle_ops(self, data):
         if not self._ops_rate.allow():
@@ -186,7 +226,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
         payload = {
             "type": "ops",
             "seq": board.seq,
-            "user": {"id": str(self.user.pk), "username": self.user.username},
+            "user": public_user(self.user),
             "ops": applied,
             "client_op_id": client_op_id,
         }
@@ -209,7 +249,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
                 "type": "board.cursor",
                 "payload": {
                     "type": "cursor",
-                    "user": {"id": str(self.user.pk), "username": self.user.username},
+                    "user": public_user(self.user),
                     "x": patch["x"],
                     "y": patch["y"],
                 },
@@ -237,7 +277,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
                     "type": "transient",
                     "id": str(oid),
                     "patch": patch,
-                    "user": {"id": str(self.user.pk), "username": self.user.username},
+                    "user": public_user(self.user),
                 },
             },
         )
@@ -260,11 +300,31 @@ class BoardConsumer(AsyncWebsocketConsumer):
         participant = get_participant(board.chat, self.user)
         if participant is None:
             return None
+        is_admin = participant.is_admin()
         return {
             "chat_id": board.chat_id,
+            "can_edit": (not board.is_locked) or is_admin,
+            "is_admin": is_admin,
+        }
+
+    @database_sync_to_async
+    def _load_snapshot(self):
+        board = (
+            Board.objects.select_related("chat")
+            .filter(pk=self.board_id)
+            .first()
+        )
+        if board is None or not board.chat.is_group:
+            return None
+        participant = get_participant(board.chat, self.user)
+        if participant is None:
+            return None
+        is_admin = participant.is_admin()
+        return {
             "seq": board.seq,
             "objects": live_snapshot(board),
-            "can_edit": (not board.is_locked) or participant.is_admin(),
+            "can_edit": (not board.is_locked) or is_admin,
+            "is_admin": is_admin,
         }
 
     @database_sync_to_async
@@ -285,3 +345,7 @@ class BoardConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def _presence_leave(self):
         return presence_leave(self.board_id, self.user, self.channel_name)
+
+    @database_sync_to_async
+    def _presence_list(self):
+        return presence_list(self.board_id)

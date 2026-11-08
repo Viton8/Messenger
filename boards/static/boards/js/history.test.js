@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BoardStore } from "./store.js";
-import { History, invertOps } from "./history.js";
+import { History, invertOps, filterOpsForStore } from "./history.js";
 
 const A = "00000000-0000-0000-0000-00000000000a";
 const B = "00000000-0000-0000-0000-00000000000b";
@@ -84,4 +84,29 @@ test("redo is cleared after a new action", () => {
   history.push([rect(B)]);
   assert.equal(history.canRedo(), false);
   assert.equal(store.get(B).type, "rect");
+});
+
+test("filterOpsForStore drops ops on missing objects and duplicate add", () => {
+  const store = new BoardStore();
+  store.applyOps([rect(A)]);
+  const filtered = filterOpsForStore(store, [
+    { op: "remove", id: B },
+    { op: "patch", id: B, patch: { x: 1 } },
+    { op: "add", id: A, type: "rect", data: { x: 0, y: 0, width: 1, height: 1 } },
+    { op: "patch", id: A, patch: { x: 9 } },
+  ]);
+  assert.deepEqual(filtered, [{ op: "patch", id: A, patch: { x: 9 } }]);
+});
+
+test("undo skips a stale entry and takes the next", () => {
+  const store = new BoardStore();
+  const notices = [];
+  const history = new History(store, { onStale: () => notices.push("stale") });
+  history.push([rect(A)]);
+  history.push([rect(B)]);
+  store.applyRemote([{ op: "remove", id: B }]);
+  assert.equal(history.undo(), true);
+  assert.equal(store.get(B), null);
+  assert.equal(store.get(A), null);
+  assert.deepEqual(notices, ["stale"]);
 });

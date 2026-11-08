@@ -140,3 +140,13 @@ def presence_leave(board_id, user, channel_name):
     except Exception:
         logger.warning("Board presence cache is unavailable")
         return [], True
+
+
+def presence_list(board_id):
+    """Return unique users currently on this board, without joining."""
+    try:
+        store = _store()
+        return _unique_users(store.hgetall(_key(board_id)))
+    except Exception:
+        logger.warning("Board presence cache is unavailable")
+        return []

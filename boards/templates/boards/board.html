@@ -3,19 +3,17 @@
 
 {% block title %}{{ board.title }} — Board — messenger{% endblock %}
 
-{% block body_modifiers %} board-screen{% endblock %}
+{% block body_modifiers %}board-screen{% endblock %}
 
 {% block content %}
-<div class="board-page" data-board-root data-read-only="{{ read_only|yesno:'true,false' }}">
+<div class="board-page" data-board-root data-board-id="{{ board.pk }}" data-login-url="{% url 'login' %}" data-read-only="{{ read_only|yesno:'true,false' }}">
   <header class="board-page__bar">
     <a class="board-back" href="{{ back_url }}">← Back to chat</a>
     <h1 class="board-title">{{ board.title }}</h1>
-    {% if board.is_locked %}
-    <span class="board-page__lock">Locked</span>
-    {% endif %}
-    {% if read_only %}
-    <span class="board-page__lock">Read only</span>
-    {% endif %}
+    <span class="board-page__lock" data-board-lock{% if not board.is_locked %} hidden{% endif %}>Locked</span>
+    <span class="board-page__lock" data-board-readonly{% if not read_only %} hidden{% endif %}>Read only</span>
+    <span class="board-page__conn" data-board-conn data-state="connecting">Переподключение</span>
+    <div class="board-presence" data-board-presence aria-label="Online members"></div>
   </header>
 
   <div class="board-toolbar" data-board-toolbar role="toolbar" aria-label="Board tools">
@@ -31,8 +29,6 @@
       <button type="button" class="board-toolbar__btn" data-tool="eraser" aria-label="Eraser (E)" aria-pressed="false">Eraser</button>
     </div>
     <div class="board-toolbar__group" data-edit-only>
-      <button type="button" class="board-toolbar__btn" data-action="undo" aria-label="Undo (Ctrl+Z)">Undo</button>
-      <button type="button" class="board-toolbar__btn" data-action="redo" aria-label="Redo (Ctrl+Shift+Z)">Redo</button>
       <button type="button" class="board-toolbar__btn" data-action="duplicate" aria-label="Duplicate (Ctrl+D)">Duplicate</button>
       <button type="button" class="board-toolbar__btn" data-action="delete" aria-label="Delete selection (Delete)">Delete</button>
       <button type="button" class="board-toolbar__btn" data-action="front" aria-label="Bring to front (])">Front</button>
@@ -41,7 +37,7 @@
     <div class="board-toolbar__group" data-edit-only>
       <label class="board-toolbar__field">
         <span>Fill</span>
-        <input type="color" data-board-fill value="#c9a227" aria-label="Fill color">
+        <input type="color" data-board-fill value="#5b5bd6" aria-label="Fill color">
       </label>
       <label class="board-toolbar__field">
         <span>Stroke</span>
@@ -57,9 +53,6 @@
       </label>
     </div>
     <div class="board-toolbar__group">
-      <button type="button" class="board-toolbar__btn" data-action="zoom-out" aria-label="Zoom out">−</button>
-      <button type="button" class="board-toolbar__btn" data-action="zoom-in" aria-label="Zoom in">+</button>
-      <button type="button" class="board-toolbar__btn" data-action="fit" aria-label="Fit all (Ctrl+0)">Fit all</button>
       <button type="button" class="board-toolbar__btn" data-action="export-view" aria-label="Export visible area as PNG">PNG view</button>
       <button type="button" class="board-toolbar__btn" data-action="export-all" aria-label="Export entire board as PNG">PNG all</button>
       <button type="button" class="board-toolbar__btn" data-action="help" aria-label="Keyboard shortcuts (?)">Help</button>
@@ -68,6 +61,16 @@
 
   <div class="board-page__stage">
     <canvas id="board-canvas" aria-label="Board canvas"></canvas>
+    <div class="board-page__cursors" data-board-cursors aria-hidden="true"></div>
+    <div class="board-page__reconnect" data-board-reconnect>Переподключение…</div>
+    <div class="board-page__toasts" data-board-toasts></div>
+    <div class="board-hud" role="toolbar" aria-label="Undo, redo, and zoom">
+      <button type="button" class="board-toolbar__btn" data-action="undo" data-edit-only aria-label="Undo (Ctrl+Z)">Undo</button>
+      <button type="button" class="board-toolbar__btn" data-action="redo" data-edit-only aria-label="Redo (Ctrl+Shift+Z)">Redo</button>
+      <button type="button" class="board-toolbar__btn" data-action="zoom-out" aria-label="Zoom out">−</button>
+      <button type="button" class="board-toolbar__btn" data-action="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="board-toolbar__btn" data-action="fit" aria-label="Fit all (Ctrl+0)">Fit all</button>
+    </div>
   </div>
 
   <dialog class="board-help" data-board-help aria-labelledby="board-help-title">

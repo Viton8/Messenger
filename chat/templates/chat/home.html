@@ -3,47 +3,54 @@
 
 {% block title %}{% if chat %}{{ title }} — {% endif %}Chat — messenger{% endblock %}
 
-{% block body_modifiers %} chat-screen{% endblock %}
+{% block body_modifiers %}app-shell chat-screen{% endblock %}
 
 {% block content %}
-<div class="game-page chat-app{% if chat %} chat-app--open{% endif %}{% if chat and chat.is_direct_message %} chat-app--direct{% endif %}">
-  <section class="game-panel chat-app__list" aria-labelledby="chat-list-title">
-    <h1 id="chat-list-title" class="game-title">Chat</h1>
+<div class="chat-app{% if chat %} chat-app--open{% endif %}{% if chat and chat.is_direct_message %} chat-app--direct{% endif %}">
+  <section class="chat-app__list" aria-labelledby="chat-list-title">
+    <div class="chat-app__list-head">
+      <h1 id="chat-list-title" class="page-title">Chat</h1>
 
-    <nav class="chat-tabs" aria-label="Chat folders">
-      {% for folder in folders %}
-      <a href="{{ folder.href }}"{% if folder.current %} aria-current="page"{% endif %}>{{ folder.label }}</a>
-      {% endfor %}
-    </nav>
+      <nav class="chat-tabs" aria-label="Chat folders">
+        {% for folder in folders %}
+        <a href="{{ folder.href }}"{% if folder.current %} aria-current="page"{% endif %}>{{ folder.label }}</a>
+        {% endfor %}
+      </nav>
 
-    <form class="chat-tools" method="get" action="">
-      <input type="hidden" name="tab" value="{{ list_params.tab }}">
-      <label for="chat-search">Search
-        <input id="chat-search" name="q" type="search" value="{{ list_params.q }}" maxlength="80" placeholder="Player or chat name" autocomplete="off">
-      </label>
-      <label class="chat-tools__check" for="chat-unread-only">
-        <input id="chat-unread-only" name="unread" type="checkbox" value="1"{% if list_params.unread %} checked{% endif %}>
-        <span>Unread</span>
-      </label>
-      <label for="chat-sort">Sort
-        <select id="chat-sort" name="sort">
-          <option value="activity"{% if list_params.sort == "activity" %} selected{% endif %}>Last activity</option>
-          <option value="unread"{% if list_params.sort == "unread" %} selected{% endif %}>Unread first</option>
-          <option value="name"{% if list_params.sort == "name" %} selected{% endif %}>Name</option>
-        </select>
-      </label>
-    </form>
+      <form class="chat-tools" method="get" action="">
+        <input type="hidden" name="tab" value="{{ list_params.tab }}">
+        <div class="chat-tools__search">
+          <svg class="ico" aria-hidden="true"><use href="#i-search"></use></svg>
+          <label class="visually-hidden" for="chat-search">Search</label>
+          <input id="chat-search" name="q" type="search" value="{{ list_params.q }}" maxlength="80" placeholder="Player or chat name" autocomplete="off">
+        </div>
+        <div class="chat-tools__row">
+          <label class="chat-tools__check" for="chat-unread-only">
+            <input id="chat-unread-only" name="unread" type="checkbox" value="1"{% if list_params.unread %} checked{% endif %}>
+            <span>Unread</span>
+          </label>
+          <label class="visually-hidden" for="chat-sort">Sort</label>
+          <select id="chat-sort" name="sort">
+            <option value="activity"{% if list_params.sort == "activity" %} selected{% endif %}>Last activity</option>
+            <option value="unread"{% if list_params.sort == "unread" %} selected{% endif %}>Unread first</option>
+            <option value="name"{% if list_params.sort == "name" %} selected{% endif %}>Name</option>
+          </select>
+        </div>
+      </form>
+    </div>
 
-    <p class="game-toolbar">
-      <a href="{% url 'chat:start_direct' %}" class="game-btn game-btn--primary">
-        <svg class="chat-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9H8.5L5 18.2z"/><path d="M12 8.5v5M9.5 11h5"/></svg>
+    <p class="chat-toolbar">
+      <a href="{% url 'chat:start_direct' %}" class="btn btn--ghost">
+        <svg class="ico" aria-hidden="true"><use href="#i-plus"></use></svg>
         New direct message
       </a>
-      <a href="{% url 'chat:start_group' %}" class="game-btn game-btn--secondary">
+      <a href="{% url 'chat:start_group' %}" class="btn btn--ghost">
+        <svg class="ico" aria-hidden="true"><use href="#i-users"></use></svg>
         New group
       </a>
     </p>
 
+    <div class="chat-app__list-scroll">
     {% if chat_rows %}
     <ul class="chat-inbox-list" aria-label="Chat list" data-sort="{{ list_params.sort }}">
       {% for row in chat_rows %}
@@ -73,76 +80,119 @@
       </li>
       {% endfor %}
     </ul>
-    <p id="chat-list-none" class="game-status" hidden>No chats in this view. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
+    <p id="chat-list-none" class="status chat-empty" hidden>No chats in this view. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
     {% else %}
-    <p class="game-status">No chats in this view. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
+    <p class="status chat-empty">No chats in this view. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
     {% endif %}
+    </div>
+
+    <div class="chat-app__list-foot">
+      <a href="{% url 'profile' %}" class="btn btn--ghost">
+        <svg class="ico" aria-hidden="true"><use href="#i-user"></use></svg>
+        Profile
+      </a>
+      <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--ghost" aria-label="Sign out">
+          <svg class="ico" aria-hidden="true"><use href="#i-logout"></use></svg>
+          Sign out
+        </button>
+      </form>
+    </div>
   </section>
 
-  <section class="game-panel chat-app__thread"{% if chat %} id="chat-room" data-chat-id="{{ chat.pk }}" data-self-id="{{ request.user.pk }}" data-has-older="{% if has_older %}1{% else %}0{% endif %}" data-find="{{ find }}" data-is-group="{% if chat.is_group %}1{% else %}0{% endif %}" data-can-moderate="{% if can_manage %}1{% else %}0{% endif %}"{% endif %} aria-labelledby="chat-room-title">
+  <section class="chat-app__thread"{% if chat %} id="chat-room" data-chat-id="{{ chat.pk }}" data-self-id="{{ request.user.pk }}" data-has-older="{% if has_older %}1{% else %}0{% endif %}" data-find="{{ find }}" data-is-group="{% if chat.is_group %}1{% else %}0{% endif %}" data-can-moderate="{% if can_manage %}1{% else %}0{% endif %}"{% endif %} aria-labelledby="chat-room-title">
     {% if chat %}
-    <a class="game-back chat-app__back" href="{{ back_url }}">← Chats</a>
+    <a class="back-link chat-app__back" href="{{ back_url }}">← Chats</a>
     <div class="chat-thread-head">
       {% if peer %}
       <span class="chat-row__avatar" aria-hidden="true">
         <span>{{ peer_initials }}</span>
         {% if peer.has_avatar %}<img src="{{ peer.avatar_url }}" alt="">{% endif %}
       </span>
+      {% else %}
+      <span class="chat-row__avatar" aria-hidden="true">
+        <span>{{ title|slice:":1"|upper }}</span>
+      </span>
       {% endif %}
-      <h1 id="chat-room-title" class="game-title">
-        {% if peer_profile_url %}
-        <a href="{{ peer_profile_url }}">{{ title }}</a>
-        {% else %}
-        {{ title }}
+      <div class="chat-thread-head__text">
+        <h1 id="chat-room-title" class="page-title">
+          {% if peer_profile_url %}
+          <a href="{{ peer_profile_url }}">{{ title }}</a>
+          {% else %}
+          {{ title }}
+          {% endif %}
+        </h1>
+        {% if chat.is_group %}
+        <p class="chat-thread-head__meta">{{ members|length }} members</p>
         {% endif %}
-      </h1>
+      </div>
+      {% if chat.is_group %}
+      <div class="chat-thread-head__actions">
+        <button type="button" class="btn btn--ghost" data-open-details="chat-group-boards" aria-controls="chat-group-boards">
+          <svg class="ico" aria-hidden="true"><use href="#i-layout"></use></svg>
+          Boards
+        </button>
+        <button type="button" class="btn btn--ghost" data-open-details="chat-group-members-box" aria-controls="chat-group-members-box">
+          <svg class="ico" aria-hidden="true"><use href="#i-users"></use></svg>
+          Members
+        </button>
+      </div>
+      {% endif %}
     </div>
     {% if chat.is_group %}
-    <details class="chat-group-panel" id="chat-group-panel" data-chat-id="{{ chat.pk }}">
-      <summary>Group info</summary>
-      <div class="chat-group-panel__body">
-        {% if group_description %}<p class="game-lead" id="chat-group-description">{{ group_description }}</p>{% endif %}
-        <p class="game-status">Your role: {{ my_role }}</p>
-        <ul class="chat-group-panel__members" id="chat-group-members">
-          {% for member in members %}
-          <li data-user-id="{{ member.id }}" data-role="{{ member.role }}">
-            <a href="{{ member.profile_url }}">{{ member.username }}</a>
-            <span class="chat-group-panel__role">{{ member.role }}</span>
-            {% if can_manage and member.role == "member" %}
-            <button type="button" class="game-btn game-btn--secondary" data-group-action="remove" data-user-id="{{ member.id }}">Remove</button>
-            {% endif %}
-            {% if is_owner and member.role == "member" %}
-            <button type="button" class="game-btn game-btn--secondary" data-group-action="promote" data-user-id="{{ member.id }}">Make admin</button>
-            {% endif %}
-            {% if is_owner and member.role == "admin" %}
-            <button type="button" class="game-btn game-btn--secondary" data-group-action="demote" data-user-id="{{ member.id }}">Make member</button>
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% if can_manage %}
-        <form id="chat-group-add" class="game-form">
-          <label class="visually-hidden" for="chat-group-add-username">Username</label>
-          <input id="chat-group-add-username" class="ui-input" name="username" type="text" maxlength="30" placeholder="Add by username" autocomplete="off">
-          <button type="submit" class="game-btn game-btn--secondary">Add</button>
-        </form>
-        <div class="chat-group-panel__invite">
-          <input id="chat-group-invite-url" class="ui-input" type="text" readonly value="{{ invite_url }}" {% if not invite_url %}hidden{% endif %}>
-          <button type="button" class="game-btn game-btn--secondary" data-group-action="invite">Create invite link</button>
-          <button type="button" class="game-btn game-btn--secondary" data-group-action="revoke" {% if not invite_url %}hidden{% endif %}>Revoke</button>
+    <div class="chat-group-panel" id="chat-group-panel" data-chat-id="{{ chat.pk }}">
+      <details id="chat-group-members-box">
+        <summary>Members</summary>
+        <div class="chat-group-panel__body">
+          {% if group_description %}<p class="lead" id="chat-group-description">{{ group_description }}</p>{% endif %}
+          <p class="status">Your role: {{ my_role }}</p>
+          <ul class="chat-group-panel__members" id="chat-group-members">
+            {% for member in members %}
+            <li data-user-id="{{ member.id }}" data-role="{{ member.role }}">
+              <a href="{{ member.profile_url }}">{{ member.username }}</a>
+              <span class="chat-group-panel__role">{{ member.role }}</span>
+              {% if can_manage and member.role == "member" %}
+              <button type="button" class="btn" data-group-action="remove" data-user-id="{{ member.id }}">Remove</button>
+              {% endif %}
+              {% if is_owner and member.role == "member" %}
+              <button type="button" class="btn" data-group-action="promote" data-user-id="{{ member.id }}">Make admin</button>
+              {% endif %}
+              {% if is_owner and member.role == "admin" %}
+              <button type="button" class="btn" data-group-action="demote" data-user-id="{{ member.id }}">Make member</button>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% if can_manage %}
+          <form id="chat-group-add" class="stack-form">
+            <label class="visually-hidden" for="chat-group-add-username">Username</label>
+            <input id="chat-group-add-username" class="ui-input" name="username" type="text" maxlength="30" placeholder="Add by username" autocomplete="off">
+            <button type="submit" class="btn">Add</button>
+          </form>
+          <div class="chat-group-panel__invite">
+            <input id="chat-group-invite-url" class="ui-input" type="text" readonly value="{{ invite_url }}" {% if not invite_url %}hidden{% endif %}>
+            <button type="button" class="btn" data-group-action="invite">Create invite link</button>
+            <button type="button" class="btn" data-group-action="revoke" {% if not invite_url %}hidden{% endif %}>Revoke</button>
+          </div>
+          {% endif %}
+          <p>
+            <button type="button" class="btn" data-group-action="leave">Leave group</button>
+          </p>
         </div>
-        {% endif %}
-        <form id="chat-group-board" class="game-form">
-          <label class="visually-hidden" for="chat-group-board-title">Board name</label>
-          <input id="chat-group-board-title" class="ui-input" name="title" type="text" maxlength="80" placeholder="Board name" autocomplete="off">
-          <button type="submit" class="game-btn game-btn--secondary">New board</button>
-        </form>
-        <p>
-          <button type="button" class="game-btn game-btn--secondary" data-group-action="leave">Leave group</button>
-        </p>
-        <p id="chat-group-error" class="field-error" hidden></p>
-      </div>
-    </details>
+      </details>
+      <details id="chat-group-boards">
+        <summary>Boards</summary>
+        <div class="chat-group-panel__body">
+          <form id="chat-group-board" class="stack-form">
+            <label class="visually-hidden" for="chat-group-board-title">Board name</label>
+            <input id="chat-group-board-title" class="ui-input" name="title" type="text" maxlength="80" placeholder="Board name" autocomplete="off">
+            <button type="submit" class="btn">New board</button>
+          </form>
+        </div>
+      </details>
+      <p id="chat-group-error" class="field-error" hidden></p>
+    </div>
     {% endif %}
     <p id="chat-connection" class="chat-connection" role="status"{% if not find %} hidden{% endif %}>{% if find %}Showing matches.{% endif %}</p>
 
@@ -153,48 +203,53 @@
       {% if list_params.sort != "activity" %}<input type="hidden" name="sort" value="{{ list_params.sort }}">{% endif %}
       <label class="visually-hidden" for="chat-find-input">Search messages</label>
       <input id="chat-find-input" name="find" type="search" value="{{ find }}" maxlength="80" placeholder="Search messages" autocomplete="off">
-      <button type="submit" class="game-btn game-btn--secondary">
-        <svg class="chat-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5 20 20"/></svg>
+      <button type="submit" class="btn">
+        <svg class="ico" aria-hidden="true"><use href="#i-search"></use></svg>
         Search
       </button>
       {% if find %}
-      <a href="{{ clear_find_url }}">
-        <svg class="chat-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>
+      <a class="btn btn--ghost" href="{{ clear_find_url }}">
+        <svg class="ico" aria-hidden="true"><use href="#i-x"></use></svg>
         Clear
       </a>
       {% endif %}
     </form>
 
-    <p id="chat-empty-hint" class="game-status"{% if messages_list %} hidden{% endif %}>{% if find %}No messages match this search.{% else %}No messages yet. Say hello!{% endif %}</p>
-    <div id="chat-log" class="game-chat-log game-chat-log--room game-chat-log--thread" role="log" aria-relevant="additions" aria-label="Conversation" tabindex="0">
+    <p id="chat-empty-hint" class="status chat-empty"{% if messages_list %} hidden{% endif %}>{% if find %}No messages match this search.{% else %}No messages yet. Say hello!{% endif %}</p>
+    <div id="chat-log" class="chat-log" role="log" aria-relevant="additions" aria-label="Conversation" tabindex="0">
       {% for m in messages_list %}
-      <div class="game-chat-line{% if m.kind == 'system' %} game-chat-line--system{% elif m.kind == 'board' %} game-chat-line--board{% elif m.is_mine %} is-mine{% endif %}{% if m.deleted %} is-deleted{% endif %}"
+      <div class="chat-msg{% if m.kind == 'system' %} chat-msg--system{% elif m.kind == 'board' %} chat-msg--board{% elif m.is_mine %} is-mine{% endif %}{% if m.deleted %} is-deleted{% endif %}"
            data-message-id="{{ m.id }}"
            data-sender-id="{{ m.sender_id }}"
            data-sent-at="{{ m.sent_at_iso }}"
            data-kind="{{ m.kind }}"
            data-deleted="{% if m.deleted %}1{% else %}0{% endif %}"
            {% if m.board_id %}data-board-id="{{ m.board_id }}"{% endif %}>
-        <p class="game-chat-line__meta">
+        <p class="chat-msg__meta">
           {% if m.profile_url %}
-          <a class="game-chat-line__name" href="{{ m.profile_url }}">{{ m.author }}</a>
+          <a class="chat-msg__name" href="{{ m.profile_url }}">{{ m.author }}</a>
           {% else %}
-          <span class="game-chat-line__name">{{ m.author }}</span>
+          <span class="chat-msg__name">{{ m.author }}</span>
           {% endif %}
           <time datetime="{{ m.sent_at_iso }}">{{ m.time_label }}</time>
-          {% if m.edited %}<span class="game-chat-line__edited">edited</span>{% endif %}
+          {% if m.edited %}<span class="chat-msg__edited">edited</span>{% endif %}
         </p>
         {% if m.kind == "board" %}
         <div class="chat-board-card">
+          <div class="chat-board-card__preview" aria-hidden="true"></div>
           <p class="chat-board-card__title">{{ m.content }}</p>
+          <time class="chat-board-card__updated" datetime="{{ m.sent_at_iso }}">{{ m.time_label }}</time>
           {% if m.board_url %}
-          <a class="game-btn game-btn--secondary" href="{{ m.board_url }}">Open board</a>
+          <a class="btn" href="{{ m.board_url }}">
+            Open board
+            <svg class="ico" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+          </a>
           {% endif %}
         </div>
         {% else %}
-        <p class="game-chat-line__body">{{ m.content }}</p>
+        <p class="chat-msg__body">{{ m.content }}</p>
         {% if m.can_edit or m.can_delete %}
-        <p class="game-chat-line__actions">
+        <p class="chat-msg__actions">
           {% if m.can_edit %}<button type="button" data-msg-action="edit">Edit</button>{% endif %}
           {% if m.can_delete %}<button type="button" data-msg-action="delete">Delete</button>{% endif %}
         </p>
@@ -204,18 +259,17 @@
       {% endfor %}
     </div>
 
-    <button type="button" id="chat-jump" class="game-btn game-btn--secondary chat-jump" hidden>
-      <svg class="chat-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5 12 15.5 18 9.5"/></svg>
+    <button type="button" id="chat-jump" class="btn chat-jump" hidden>
       New messages
     </button>
 
-    <form method="post" action="" id="chat-form" class="game-chat-form">
+    <form method="post" action="" id="chat-form" class="chat-composer">
       {% csrf_token %}
       <fieldset {% if find %}disabled{% endif %}>
         <label class="visually-hidden" for="chat-input">Message</label>
         <input id="chat-input" name="content" type="text" maxlength="10000" placeholder="Message…" autocomplete="off" required value="{{ form.content.value|default_if_none:'' }}" {% if form.content.errors %}aria-invalid="true" aria-describedby="chat-error"{% endif %} />
-        <button type="submit" id="chat-send" class="game-btn game-btn--primary">
-          <svg class="chat-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-6.5 16-2.2-6.3z"/></svg>
+        <button type="submit" id="chat-send" class="btn btn--primary" aria-label="Send">
+          <svg class="ico" aria-hidden="true"><use href="#i-send"></use></svg>
           Send
         </button>
       </fieldset>
@@ -223,8 +277,10 @@
     <p id="chat-error" class="field-error" role="alert"{% if not form.content.errors %} hidden{% endif %}>{% if form.content.errors %}{{ form.content.errors.0 }}{% endif %}</p>
     {% if find %}<p class="chat-find__note">Clear the search to send a message.</p>{% endif %}
     {% else %}
-    <h1 id="chat-room-title" class="game-title">Conversation</h1>
-    <p class="game-status">Select a chat to read it here.</p>
+    <div class="chat-thread-empty">
+      <h1 id="chat-room-title" class="page-title">Conversation</h1>
+      <p class="status">Select a chat…</p>
+    </div>
     {% endif %}
   </section>
 </div>
@@ -285,6 +341,18 @@
     search.addEventListener("search", applySearch);
     applySearch();
   }
+})();
+</script>
+<script>
+(function () {
+  document.querySelectorAll("[data-open-details]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var target = document.getElementById(button.getAttribute("data-open-details"));
+      if (!target) return;
+      target.open = !target.open;
+      button.setAttribute("aria-expanded", target.open ? "true" : "false");
+    });
+  });
 })();
 </script>
 {% if chat %}

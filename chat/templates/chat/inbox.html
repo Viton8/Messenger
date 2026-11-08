@@ -3,13 +3,13 @@
 {% block title %}Chat — messenger{% endblock %}
 
 {% block content %}
-<div class="game-page">
-  <section class="game-panel">
-    <h1 class="game-title">Chat</h1>
-    <p class="game-lead">Direct messages and group chats, newest activity first.</p>
+<div class="narrow-page">
+  <section class="panel">
+    <h1 class="page-title">Chat</h1>
+    <p class="lead">Direct messages and group chats, newest activity first.</p>
 
-    <p class="game-toolbar">
-      <a href="{% url 'chat:start_direct' %}" class="game-btn game-btn--primary">New direct message</a>
+    <p class="chat-toolbar">
+      <a href="{% url 'chat:start_direct' %}" class="btn btn--primary">New direct message</a>
     </p>
 
     {% if chat_rows %}
@@ -35,7 +35,7 @@
       {% endfor %}
     </ul>
     {% else %}
-    <p class="game-status">No chats yet. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
+    <p class="status">No chats yet. Start a <a href="{% url 'chat:start_direct' %}">direct conversation</a>.</p>
     {% endif %}
   </section>
 </div>

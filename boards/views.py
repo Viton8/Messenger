@@ -1,4 +1,4 @@
-"""Server-rendered board page (local canvas editor)."""
+"""Server-rendered board page (collaborative canvas editor)."""
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -12,7 +12,7 @@ from .models import Board
 
 @login_required
 def board_page(request, board_id):
-    """Show one board to a group member with the local editor."""
+    """Show one board to a group member with the collaborative editor."""
     board = get_object_or_404(
         Board.objects.select_related("chat"),
         pk=board_id,

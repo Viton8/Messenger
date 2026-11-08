@@ -40,6 +40,15 @@ export function bindBoardUi(editor, root) {
   const strokeInput = root.querySelector("[data-board-stroke]");
   const widthInput = root.querySelector("[data-board-stroke-width]");
   const fontInput = root.querySelector("[data-board-font-size]");
+  const connEl = root.querySelector("[data-board-conn]");
+  const presenceEl = root.querySelector("[data-board-presence]");
+  const overlayEl = root.querySelector("[data-board-reconnect]");
+  const lockEl = root.querySelector("[data-board-lock]");
+  const readOnlyEl = root.querySelector("[data-board-readonly]");
+  const toastsEl = root.querySelector("[data-board-toasts]");
+  const cursorLayer = root.querySelector("[data-board-cursors]");
+  const cursors = new Map();
+  let cursorTick = false;
 
   function syncToolButtons() {
     toolbar.querySelectorAll("[data-tool]").forEach((button) => {
@@ -64,7 +73,7 @@ export function bindBoardUi(editor, root) {
     }
   }
 
-  toolbar.addEventListener("click", (event) => {
+  function onToolbarClick(event) {
     const button = event.target.closest("button");
     if (!button) {
       return;
@@ -102,7 +111,13 @@ export function bindBoardUi(editor, root) {
     } else if (action === "duplicate") {
       editor.duplicateSelection();
     }
-  });
+  }
+
+  toolbar.addEventListener("click", onToolbarClick);
+  const hud = root.querySelector(".board-hud");
+  if (hud) {
+    hud.addEventListener("click", onToolbarClick);
+  }
 
   function onStyleChange() {
     if (fillInput) {
@@ -125,16 +140,146 @@ export function bindBoardUi(editor, root) {
   widthInput && widthInput.addEventListener("change", onStyleChange);
   fontInput && fontInput.addEventListener("change", onStyleChange);
 
+  function applyReadOnly() {
+    const locked = editor.readOnly;
+    toolbar.querySelectorAll("[data-tool], [data-edit-only]").forEach((el) => {
+      el.hidden = locked;
+      el.disabled = locked;
+    });
+    root.setAttribute("data-read-only", locked ? "true" : "false");
+  }
+
+  function setReadOnlyBadge(show) {
+    if (readOnlyEl) {
+      readOnlyEl.hidden = !show;
+    }
+  }
+
+  function notice(text) {
+    if (!toastsEl || !text) {
+      return;
+    }
+    const item = document.createElement("div");
+    item.className = "board-toast";
+    item.textContent = text;
+    toastsEl.appendChild(item);
+    setTimeout(() => item.remove(), 4000);
+  }
+
+  function setConn(state) {
+    if (!connEl) {
+      return;
+    }
+    const labels = {
+      live: "В сети",
+      connecting: "Переподключение",
+      reconnecting: "Переподключение",
+      closed: "Нет связи",
+    };
+    connEl.textContent = labels[state] || labels.connecting;
+    connEl.setAttribute("data-state", state);
+  }
+
+  function setReconnecting(show) {
+    if (overlayEl) {
+      overlayEl.hidden = !show;
+    }
+  }
+
+  function setLockedBadge(isLocked) {
+    if (lockEl) {
+      lockEl.hidden = !isLocked;
+    }
+  }
+
+  function setPresence(users) {
+    if (!presenceEl) {
+      return;
+    }
+    presenceEl.replaceChildren();
+    for (const user of users || []) {
+      const chip = document.createElement("span");
+      chip.className = "board-presence__user";
+      chip.title = user.username || "";
+      chip.style.setProperty("--board-user-color", user.color || "#5b5bd6");
+      const mark = document.createElement("span");
+      mark.className = "board-presence__avatar";
+      mark.textContent = (user.username || "?").slice(0, 1).toUpperCase();
+      const name = document.createElement("span");
+      name.className = "board-presence__name";
+      name.textContent = user.username || "";
+      chip.append(mark, name);
+      presenceEl.appendChild(chip);
+    }
+  }
+
+  function screenPos(x, y) {
+    const vpt = editor.canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    return { left: x * vpt[0] + vpt[4], top: y * vpt[3] + vpt[5] };
+  }
+
+  function renderCursors() {
+    cursorTick = false;
+    for (const cur of cursors.values()) {
+      const pos = screenPos(cur.x, cur.y);
+      cur.el.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
+    }
+    if (cursors.size) {
+      cursorTick = true;
+      requestAnimationFrame(renderCursors);
+    }
+  }
+
+  function showCursor(msg) {
+    if (!cursorLayer || !msg || !msg.user) {
+      return;
+    }
+    const id = String(msg.user.id);
+    let cur = cursors.get(id);
+    if (!cur) {
+      const el = document.createElement("div");
+      el.className = "board-cursor";
+      el.innerHTML =
+        '<svg class="board-cursor__arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1 L15 7 L8 9 L6 15 Z"/></svg>' +
+        '<span class="board-cursor__name"></span>';
+      cursorLayer.appendChild(el);
+      cur = { el, x: 0, y: 0, timer: null };
+      cursors.set(id, cur);
+    }
+    cur.x = Number(msg.x) || 0;
+    cur.y = Number(msg.y) || 0;
+    cur.el.style.setProperty("--board-cursor-color", msg.user.color || "#5b5bd6");
+    const label = cur.el.querySelector(".board-cursor__name");
+    if (label) {
+      label.textContent = msg.user.username || "";
+    }
+    if (cur.timer) {
+      clearTimeout(cur.timer);
+    }
+    cur.timer = setTimeout(() => hideCursor(id), 5000);
+    if (!cursorTick) {
+      cursorTick = true;
+      requestAnimationFrame(renderCursors);
+    }
+  }
+
+  function hideCursor(userId) {
+    const cur = cursors.get(String(userId));
+    if (!cur) {
+      return;
+    }
+    if (cur.timer) {
+      clearTimeout(cur.timer);
+    }
+    cur.el.remove();
+    cursors.delete(String(userId));
+  }
+
   editor.onToolChange(syncToolButtons);
+  editor.onReadOnlyChange(applyReadOnly);
   syncToolButtons();
   syncStyles();
-
-  if (editor.readOnly) {
-    toolbar.querySelectorAll("[data-tool], [data-edit-only]").forEach((el) => {
-      el.hidden = true;
-      el.disabled = true;
-    });
-  }
+  applyReadOnly();
 
   window.addEventListener("keydown", (event) => {
     if (isTyping(event, editor)) {
@@ -197,6 +342,17 @@ export function bindBoardUi(editor, root) {
       editor.setTool(tool.name);
     }
   });
+
+  return {
+    notice,
+    setConn,
+    setReconnecting,
+    setLockedBadge,
+    setReadOnlyBadge,
+    setPresence,
+    showCursor,
+    hideCursor,
+  };
 }
 
 export { TOOLS, HELP_ITEMS };
@@ -216,7 +372,7 @@ function toColorInput(value) {
       value[3]
     );
   }
-  return "#c9a227";
+  return "#5b5bd6";
 }
 
 function isTyping(event, editor) {

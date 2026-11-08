@@ -13,7 +13,7 @@ import {
   Textbox,
   classRegistry,
 } from "../vendor/fabric.min.mjs";
-import { createFromRecord, toRecord, patchFromRecords } from "./serialize.js";
+import { applyProps, createFromRecord, toRecord, patchFromRecords } from "./serialize.js";
 
 export class Arrow extends Line {
   static type = "Arrow";
@@ -57,9 +57,13 @@ export class BoardEditor {
   constructor({ canvasEl, store, history, readOnly = false }) {
     this.store = store;
     this.history = history;
+    this.sync = null;
     this.readOnly = Boolean(readOnly);
+    this._onReadOnly = [];
+    this._localTransforming = new Set();
+    this._remoteTransient = new Map();
     this.styles = {
-      fill: "#c9a227",
+      fill: "#5b5bd6",
       stroke: "#e8eaed",
       strokeWidth: 2,
       fontSize: 24,
@@ -89,7 +93,7 @@ export class BoardEditor {
     this.canvas = new Canvas(canvasEl, {
       width: Math.max(1, size.width),
       height: Math.max(1, size.height),
-      backgroundColor: "#1a2332",
+      backgroundColor: "transparent",
       preserveObjectStacking: true,
       selection: !this.readOnly,
       stopContextMenu: true,
@@ -112,6 +116,26 @@ export class BoardEditor {
 
   onToolChange(fn) {
     this._onToolChange.push(fn);
+  }
+
+  onReadOnlyChange(fn) {
+    this._onReadOnly.push(fn);
+  }
+
+  setReadOnly(flag) {
+    const next = Boolean(flag);
+    if (this.readOnly === next) {
+      this._setReadOnlyMode();
+      return;
+    }
+    this.readOnly = next;
+    if (this.readOnly) {
+      this.setTool("select");
+    }
+    this._setReadOnlyMode();
+    for (const fn of this._onReadOnly) {
+      fn(this.readOnly);
+    }
   }
 
   registerTools(tools) {
@@ -421,15 +445,18 @@ export class BoardEditor {
       }
     });
     canvas.on("mouse:move", (opt) => {
-      if (!this._panning || !this._panLast) {
-        return;
+      if (this._panning && this._panLast) {
+        const event = opt.e;
+        const vpt = [...canvas.viewportTransform];
+        vpt[4] += event.clientX - this._panLast.x;
+        vpt[5] += event.clientY - this._panLast.y;
+        canvas.setViewportTransform(vpt);
+        this._panLast = { x: event.clientX, y: event.clientY };
       }
-      const event = opt.e;
-      const vpt = [...canvas.viewportTransform];
-      vpt[4] += event.clientX - this._panLast.x;
-      vpt[5] += event.clientY - this._panLast.y;
-      canvas.setViewportTransform(vpt);
-      this._panLast = { x: event.clientX, y: event.clientY };
+      if (this.sync && this.sync.state === "live") {
+        const point = this.scenePoint(opt);
+        this.sync.sendCursor(point.x, point.y);
+      }
     });
     canvas.on("mouse:up", () => {
       if (this._panning) {
@@ -506,10 +533,13 @@ export class BoardEditor {
 
   _bindObjectEvents() {
     this.canvas.on("object:modified", (opt) => {
+      const objects = this._targets(opt.target);
+      for (const obj of objects) {
+        this._localTransforming.delete(String(obj.id));
+      }
       if (this.readOnly) {
         return;
       }
-      const objects = this._targets(opt.target);
       const ops = [];
       for (const obj of objects) {
         const before = obj._boardBefore;
@@ -531,8 +561,12 @@ export class BoardEditor {
       const target = opt.transform && opt.transform.target;
       for (const obj of this._targets(target)) {
         obj._boardBefore = toRecord(obj);
+        this._localTransforming.add(String(obj.id));
       }
     });
+    this.canvas.on("object:moving", (opt) => this._sendLiveTransient(opt));
+    this.canvas.on("object:scaling", (opt) => this._sendLiveTransient(opt));
+    this.canvas.on("object:rotating", (opt) => this._sendLiveTransient(opt));
     this.canvas.on("editing:exited", (opt) => {
       const obj = opt.target;
       if (!obj || !obj.id || this.readOnly) {
@@ -570,8 +604,15 @@ export class BoardEditor {
   }
 
   _applyOpsToCanvas(ops) {
+    if (ops.length === 1 && ops[0].op === "reset") {
+      this._rebuildFromStore();
+      return;
+    }
     const selected = this.selectedObjects().map((obj) => obj.id);
     for (const op of ops) {
+      if (op.id) {
+        this._clearRemoteTransient(String(op.id));
+      }
       if (op.op === "add" || op.op === "patch") {
         const record = this.store.get(op.id);
         if (record) {
@@ -589,6 +630,88 @@ export class BoardEditor {
       this.canvas.setActiveObject(still[0]);
     }
     this._applySelectability();
+  }
+
+  _rebuildFromStore() {
+    for (const id of [...this._byId.keys()]) {
+      this._removeFromCanvas(id);
+    }
+    this._remoteTransient.forEach((entry) => {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+    });
+    this._remoteTransient.clear();
+    this._localTransforming.clear();
+    for (const record of this.store.snapshot()) {
+      this._upsert(record);
+    }
+    this._syncZ();
+    this._applySelectability();
+    this.canvas.requestRenderAll();
+  }
+
+  _sendLiveTransient(opt) {
+    if (this.readOnly || !this.sync) {
+      return;
+    }
+    for (const obj of this._targets(opt.target)) {
+      const record = toRecord(obj);
+      const patch = {};
+      for (const key of ["x", "y", "angle", "scaleX", "scaleY"]) {
+        if (record.data[key] != null) {
+          patch[key] = record.data[key];
+        }
+      }
+      this.sync.sendTransient(obj.id, patch);
+    }
+  }
+
+  applyRemoteTransient(payload) {
+    const id = String(payload.id);
+    if (this._localTransforming.has(id)) {
+      return;
+    }
+    const obj = this._byId.get(id);
+    const record = this.store.get(id);
+    if (!obj || !record) {
+      return;
+    }
+    applyProps(obj, { ...record, data: { ...record.data, ...(payload.patch || {}) } });
+    this.canvas.requestRenderAll();
+    const prev = this._remoteTransient.get(id);
+    if (prev && prev.timer) {
+      clearTimeout(prev.timer);
+    }
+    const timer = setTimeout(() => this._clearRemoteTransient(id), 3000);
+    this._remoteTransient.set(id, {
+      userId: payload.user && String(payload.user.id),
+      timer,
+    });
+  }
+
+  clearTransientsForUser(userId) {
+    const uid = String(userId);
+    for (const [id, entry] of [...this._remoteTransient.entries()]) {
+      if (entry.userId === uid) {
+        this._clearRemoteTransient(id);
+      }
+    }
+  }
+
+  _clearRemoteTransient(id) {
+    const key = String(id);
+    const entry = this._remoteTransient.get(key);
+    if (entry && entry.timer) {
+      clearTimeout(entry.timer);
+    }
+    this._remoteTransient.delete(key);
+    const obj = this._byId.get(key);
+    const record = this.store.get(key);
+    if (obj && record) {
+      applyProps(obj, record);
+      this.canvas.requestRenderAll();
+    }
   }
 
   _upsert(record) {
